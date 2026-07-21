@@ -158,6 +158,7 @@ button { font: inherit; }
 .island[data-mode="working"] { --status: var(--cyan); }
 .island[data-mode="waiting"] { --status: var(--amber); }
 .island[data-mode="done"] { --status: var(--acid); }
+.island[data-mode="reply"] { --status: #79e5ff; }
 .island[data-mode="error"] { --status: var(--danger); }
 .island[data-mode="resting"] { --status: #7d8492; }
 .island[data-mode="offline"] { --status: #626772; }
@@ -592,6 +593,11 @@ footer { display: flex; align-items: center; justify-content: space-between; col
 .island[data-mode="waiting"] .pet-wrap { animation: petWait 1.2s steps(2, end) infinite; }
 .island[data-mode="waiting"] .bot-eyes-dot { animation: kawaiiWait 1.2s ease-in-out infinite; }
 .island[data-mode="done"] .pet-wrap { animation: petCelebrate 780ms steps(2, end) 4; }
+.island[data-mode="reply"] .pet-wrap { animation: petCelebrate 780ms steps(2, end) 2; }
+.island[data-mode="reply"] .bot-eyes-dot,
+.island[data-mode="reply"] .bot-mouth-neutral { display: none; }
+.island[data-mode="reply"] .bot-eyes-happy,
+.island[data-mode="reply"] .bot-mouth-smile { display: inline; }
 .island[data-mode="done"] .bot-eyes-dot,
 .island[data-mode="done"] .bot-mouth-neutral { display: none; }
 .island[data-mode="done"] .bot-eyes-happy,

@@ -38,6 +38,10 @@ const PET_ACTIONS = {
     { name: "wave", duration: 2000 },
     { name: "dance", duration: 2200 },
   ],
+  reply: [
+    { name: "cheer", duration: 1800 },
+    { name: "wave", duration: 2000 },
+  ],
   error: [
     { name: "panic", duration: 1500 },
     { name: "diagnose", duration: 2200 },
@@ -177,7 +181,7 @@ function renderEvents(events = []) {
 function currentTasks(state) {
   const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
   if (tasks.length) return tasks;
-  if (["thinking", "working", "waiting", "error"].includes(state?.mode)) {
+  if (["thinking", "working", "waiting", "reply", "error"].includes(state?.mode)) {
     return [{
       id: state.threadId,
       task: state.task,

@@ -1,13 +1,13 @@
-const PROGRESS_MODES = new Set(["working", "waiting", "done", "error"]);
+const REPLY_MODES = new Set(["reply"]);
 
 function progressRevealSignal(state) {
   const mode = String(state?.mode || "");
-  if (!PROGRESS_MODES.has(mode)) return "";
+  if (!REPLY_MODES.has(mode) || state?.replyFresh !== true) return "";
 
   const primaryTask = Array.isArray(state?.tasks) ? state.tasks[0] : null;
   const taskId = state?.threadId || primaryTask?.id || "active";
-  const startedAt = state?.startedAt || primaryTask?.startedAt || 0;
-  return `${taskId}|${startedAt}|${mode}`;
+  const replyAt = state?.replyAt || state?.lastEventAt || 0;
+  return `${taskId}|${replyAt}|${mode}`;
 }
 
 class ProgressRevealPolicy {

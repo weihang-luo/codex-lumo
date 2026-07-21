@@ -6,6 +6,7 @@ const WINDOW_SCALES = Object.freeze({
 
 const DEFAULT_WINDOW_SIZE = "medium";
 const DEFAULT_REVEAL_MS = 5000;
+const MAX_VISIBLE_TASKS = 5;
 const REVEAL_OPTIONS = Object.freeze([0, 3000, 5000, 8000]);
 
 function normalizeWindowSize(value) {
@@ -39,16 +40,17 @@ function expandedSize(value, taskCount = 1, view = "tasks") {
   if (view === "settings") {
     return { width: profile.expandedWidth, height: profile.settingsHeight };
   }
-  const visibleRows = Math.max(1, Math.min(5, Number(taskCount) || 1));
+  const visibleRows = Math.max(1, Math.min(MAX_VISIBLE_TASKS, Number(taskCount) || 1));
   return {
     width: profile.expandedWidth,
-    height: Math.round((250 + visibleRows * 46) * profile.contentScale),
+    height: Math.round((270 + visibleRows * 46) * profile.contentScale),
   };
 }
 
 module.exports = {
   DEFAULT_REVEAL_MS,
   DEFAULT_WINDOW_SIZE,
+  MAX_VISIBLE_TASKS,
   REVEAL_OPTIONS,
   WINDOW_SCALES,
   expandedSize,

@@ -13,6 +13,7 @@ try {
 const MAX_EVENT_HISTORY = 5;
 const MAX_RECONSTRUCT_BYTES = 2 * 1024 * 1024;
 const TASK_SCAN_CHUNK_BYTES = 512 * 1024;
+const QUOTA_SCAN_BYTES = 1024 * 1024;
 const TASK_START_NEEDLE = Buffer.from('"type":"task_started"');
 const RUNNING_TASK_STALE_MS = 12 * 60 * 60 * 1000;
 const THINKING_STAGES = Object.freeze([
@@ -74,6 +75,7 @@ function eventSummary(event) {
   const inner = event?.payload?.type;
   if (inner === "task_started") return "收到新任务";
   if (inner === "agent_reasoning") return "分析任务";
+  if (inner === "agent_message") return "Codex 发来回复";
   if (inner === "custom_tool_call" || inner === "function_call") {
     return labelForTool(event.payload.name);
   }
@@ -145,6 +147,57 @@ function quotaFromRateLimits(rateLimits) {
   };
 }
 
+function rateLimitRecordsFromEvents(events) {
+  const latestByLimit = new Map();
+  for (const event of events) {
+    const rateLimits = event?.payload?.type === "token_count" ? event.payload.rate_limits : null;
+    if (!rateLimits || typeof rateLimits !== "object") continue;
+    const observedAt = Date.parse(event?.timestamp || "") || 0;
+    const limitId = String(rateLimits.limit_id || "codex");
+    const previous = latestByLimit.get(limitId);
+    if (!previous || observedAt >= previous.observedAt) {
+      latestByLimit.set(limitId, { rateLimits, observedAt });
+    }
+  }
+  return [...latestByLimit.values()];
+}
+
+function quotaFromRateLimitRecords(records, now = Date.now()) {
+  const latestByLimit = new Map();
+  for (const record of records || []) {
+    const rateLimits = record?.rateLimits;
+    if (!rateLimits || typeof rateLimits !== "object") continue;
+    const limitId = String(rateLimits.limit_id || "codex");
+    const observedAt = Math.max(0, Number(record.observedAt) || 0);
+    const previous = latestByLimit.get(limitId);
+    if (!previous || observedAt >= previous.observedAt) {
+      latestByLimit.set(limitId, { rateLimits, observedAt });
+    }
+  }
+
+  const quotas = [];
+  for (const { rateLimits, observedAt } of latestByLimit.values()) {
+    const activeRateLimits = { ...rateLimits };
+    for (const kind of ["primary", "secondary"]) {
+      const window = rateLimits[kind];
+      const resetsAt = Math.max(0, Number(window?.resets_at) || 0) * 1000;
+      if (window && resetsAt && resetsAt <= now && observedAt < resetsAt) {
+        activeRateLimits[kind] = null;
+      }
+    }
+    const quota = quotaFromRateLimits(activeRateLimits);
+    if (quota) quotas.push({ ...quota, observedAt });
+  }
+
+  return quotas.sort((a, b) => {
+    const pressure = a.remainingPercent - b.remainingPercent;
+    if (pressure) return pressure;
+    if (a.limitId === "codex" && b.limitId !== "codex") return -1;
+    if (b.limitId === "codex" && a.limitId !== "codex") return 1;
+    return b.observedAt - a.observedAt;
+  })[0] || null;
+}
+
 function taskSummaryFromEvents(events, options = {}) {
   const lastStart = events.map(eventType).lastIndexOf("task_started");
   if (lastStart < 0) return null;
@@ -179,6 +232,11 @@ function advanceTaskSummary(task, events) {
     }
     if (event.type === "session_meta") {
       task.workspace = payload.cwd || task.workspace;
+    } else if (type === "agent_message") {
+      task.mode = "reply";
+      task.phase = "有新回复";
+      task.detail = shortTaskTitle(payload.message, "Codex 发来新回复");
+      task.replyAt = timestamp;
     } else if (type === "message" && payload.role === "user") {
       task.task = shortTaskTitle(extractMessageText(payload), task.task);
       task.mode = "thinking";
@@ -277,6 +335,8 @@ class CodexMonitor extends EventEmitter {
     this.db = null;
     this.lastCompletionCheck = 0;
     this.taskCache = new Map();
+    this.quotaFileCache = new Map();
+    this.quotaRecords = new Map();
     this.runningTasks = [];
     this.state = {
       connection: "searching",
@@ -294,6 +354,9 @@ class CodexMonitor extends EventEmitter {
       events: [],
       tasks: [],
       thinkingStep: 0,
+      latestReply: "",
+      replyAt: 0,
+      replyFresh: false,
       quota: null,
     };
   }
@@ -395,6 +458,7 @@ class CodexMonitor extends EventEmitter {
       });
       return;
     }
+    this.scanQuotaRecords(candidates);
     const runningTasks = this.scanRunningTasks(candidates);
     const ranked = candidates
       .map((file) => ({ ...file, eventTime: this.lastEventTimestamp(file) }))
@@ -404,6 +468,39 @@ class CodexMonitor extends EventEmitter {
       : ranked[0];
     if (!force && newest.path === this.activeFile) return;
     this.followFile(newest.path, newest.size);
+  }
+
+  rememberRateLimits(rateLimits, observedAt) {
+    if (!rateLimits || typeof rateLimits !== "object") return;
+    const limitId = String(rateLimits.limit_id || "codex");
+    const record = { rateLimits, observedAt: Math.max(0, Number(observedAt) || 0) };
+    const previous = this.quotaRecords.get(limitId);
+    if (!previous || record.observedAt >= previous.observedAt) {
+      this.quotaRecords.set(limitId, record);
+    }
+    this.state.quota = quotaFromRateLimitRecords([...this.quotaRecords.values()]);
+  }
+
+  scanQuotaRecords(candidates) {
+    const livePaths = new Set(candidates.map((file) => file.path));
+    for (const file of candidates) {
+      let cached = this.quotaFileCache.get(file.path);
+      if (!cached || cached.size !== file.size || cached.mtimeMs !== file.mtimeMs) {
+        const start = Math.max(0, file.size - QUOTA_SCAN_BYTES);
+        const parsed = readCompleteEvents(file.path, start, file.size);
+        cached = {
+          size: file.size,
+          mtimeMs: file.mtimeMs,
+          records: rateLimitRecordsFromEvents(parsed.events),
+        };
+        this.quotaFileCache.set(file.path, cached);
+      }
+      cached.records.forEach((record) => this.rememberRateLimits(record.rateLimits, record.observedAt));
+    }
+
+    for (const filePath of this.quotaFileCache.keys()) {
+      if (!livePaths.has(filePath)) this.quotaFileCache.delete(filePath);
+    }
   }
 
   scanRunningTasks(candidates) {
@@ -469,7 +566,9 @@ class CodexMonitor extends EventEmitter {
       workspace: metadata.cwd || this.state.workspace,
       events: [],
       progress: 0,
-      quota: null,
+      latestReply: "",
+      replyAt: 0,
+      replyFresh: false,
     };
     this.readAppended(true);
   }
@@ -542,7 +641,7 @@ class CodexMonitor extends EventEmitter {
     const type = payload.type || event?.type;
     const eventTime = Date.parse(event?.timestamp || "") || Date.now();
     const summary = eventSummary(event);
-    const patch = { connection: "connected", lastEventAt: eventTime };
+    const patch = { connection: "connected", lastEventAt: eventTime, replyFresh: false };
 
     if (event.type === "session_meta") {
       patch.workspace = payload.cwd || patch.workspace;
@@ -554,6 +653,8 @@ class CodexMonitor extends EventEmitter {
       patch.thinkingStep = 0;
       patch.startedAt = eventTime;
       patch.threadId = this.state.threadId;
+      patch.latestReply = "";
+      patch.replyAt = 0;
     } else if (type === "message" && payload.role === "user") {
       patch.task = shortTaskTitle(extractMessageText(payload), this.state.task);
       patch.mode = "thinking";
@@ -574,6 +675,14 @@ class CodexMonitor extends EventEmitter {
       patch.thinkingStep = (this.state.thinkingStep || 0) + 1;
       patch.detail = thinkingStage(patch.thinkingStep);
       patch.progress = Math.min(88, Math.max(this.state.progress + 1, 16));
+    } else if (type === "agent_message") {
+      patch.mode = "reply";
+      patch.phase = "有新回复";
+      patch.latestReply = shortTaskTitle(payload.message, "Codex 发来新回复");
+      patch.detail = patch.latestReply;
+      patch.replyAt = eventTime;
+      patch.replyFresh = !quiet;
+      patch.progress = Math.max(this.state.progress, 96);
     } else if (type === "custom_tool_call" || type === "function_call") {
       const waiting = /wait/i.test(payload.name || "");
       patch.mode = waiting ? "waiting" : "working";
@@ -590,12 +699,12 @@ class CodexMonitor extends EventEmitter {
         : "正在整理工具结果";
       patch.progress = Math.min(94, Math.max(this.state.progress + 1, 28));
     } else if (type === "token_count") {
-      const quota = quotaFromRateLimits(payload.rate_limits);
-      if (quota) patch.quota = quota;
+      this.rememberRateLimits(payload.rate_limits, eventTime);
+      if (this.state.quota) patch.quota = this.state.quota;
     } else if (type === "task_complete" || type === "turn_complete" || type === "turn_completed") {
       patch.mode = "done";
-      patch.phase = "已完成";
-      patch.detail = "任务已经完成";
+      patch.phase = this.state.latestReply ? "已回复" : "已完成";
+      patch.detail = this.state.latestReply || "任务已经完成";
       patch.progress = 100;
       this.state.tasks = (this.state.tasks || []).filter((task) => task.id !== this.state.threadId);
     }
@@ -661,6 +770,8 @@ module.exports = {
   labelForTool,
   parseJsonLines,
   quotaFromRateLimits,
+  quotaFromRateLimitRecords,
+  rateLimitRecordsFromEvents,
   shortTaskTitle,
   stripInjectedContext,
   taskSummaryFromEvents,

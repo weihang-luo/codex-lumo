@@ -2,36 +2,38 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { ProgressRevealPolicy, progressRevealSignal } = require("../reveal-policy.cjs");
 
-test("thinking and idle states never request a reveal", () => {
+test("only a newly arrived visible reply can request a reveal", () => {
   assert.equal(progressRevealSignal({ mode: "thinking", threadId: "one" }), "");
+  assert.equal(progressRevealSignal({ mode: "working", threadId: "one" }), "");
+  assert.equal(progressRevealSignal({ mode: "waiting", threadId: "one" }), "");
+  assert.equal(progressRevealSignal({ mode: "error", threadId: "one" }), "");
+  assert.equal(progressRevealSignal({ mode: "done", threadId: "one" }), "");
+  assert.equal(progressRevealSignal({ mode: "reply", threadId: "one", replyAt: 1, replyFresh: false }), "");
   assert.equal(progressRevealSignal({ mode: "resting" }), "");
   assert.equal(progressRevealSignal({ mode: "offline" }), "");
 });
 
-test("real progress reveals once per task stage", () => {
+test("a visible reply reveals only once", () => {
   const policy = new ProgressRevealPolicy();
-  const working = { mode: "working", threadId: "one", startedAt: 100 };
+  const reply = { mode: "reply", threadId: "one", replyAt: 100, replyFresh: true };
 
-  assert.equal(policy.shouldReveal({ mode: "thinking", threadId: "one", startedAt: 100 }), false);
-  assert.equal(policy.shouldReveal(working), true);
-  assert.equal(policy.shouldReveal({ ...working, phase: "Running command", detail: "step 2" }), false);
-  assert.equal(policy.shouldReveal({ mode: "thinking", threadId: "one", startedAt: 100 }), false);
-  assert.equal(policy.shouldReveal(working), false);
-  assert.equal(policy.shouldReveal({ ...working, mode: "waiting" }), true);
-  assert.equal(policy.shouldReveal({ ...working, mode: "done" }), true);
-  assert.equal(policy.shouldReveal({ ...working, mode: "error" }), true);
+  assert.equal(policy.shouldReveal({ mode: "thinking", threadId: "one" }), false);
+  assert.equal(policy.shouldReveal({ ...reply, mode: "working" }), false);
+  assert.equal(policy.shouldReveal({ ...reply, mode: "waiting" }), false);
+  assert.equal(policy.shouldReveal(reply), true);
+  assert.equal(policy.shouldReveal({ ...reply, phase: "有新回复", detail: "刷新文案" }), false);
 });
 
-test("a new task can reveal the same progress stage", () => {
+test("each newly arrived reply can reveal", () => {
   const policy = new ProgressRevealPolicy();
-  assert.equal(policy.shouldReveal({ mode: "working", threadId: "one", startedAt: 100 }), true);
-  assert.equal(policy.shouldReveal({ mode: "working", threadId: "two", startedAt: 100 }), true);
-  assert.equal(policy.shouldReveal({ mode: "working", threadId: "one", startedAt: 200 }), true);
+  assert.equal(policy.shouldReveal({ mode: "reply", threadId: "one", replyAt: 100, replyFresh: true }), true);
+  assert.equal(policy.shouldReveal({ mode: "reply", threadId: "two", replyAt: 100, replyFresh: true }), true);
+  assert.equal(policy.shouldReveal({ mode: "reply", threadId: "one", replyAt: 200, replyFresh: true }), true);
 });
 
 test("task-list identity is used when the aggregate state has no thread id", () => {
   assert.equal(
-    progressRevealSignal({ mode: "working", tasks: [{ id: "task-a", startedAt: 42 }] }),
-    "task-a|42|working",
+    progressRevealSignal({ mode: "reply", replyAt: 42, replyFresh: true, tasks: [{ id: "task-a" }] }),
+    "task-a|42|reply",
   );
 });

@@ -9,6 +9,7 @@ const {
   labelForTool,
   parseJsonLines,
   quotaFromRateLimits,
+  quotaFromRateLimitRecords,
   shortTaskTitle,
   stripInjectedContext,
   taskSummaryFromEvents,
@@ -27,6 +28,36 @@ test("maps tool calls to privacy-safe activity labels", () => {
   assert.equal(labelForTool("shell_command"), "正在运行命令");
   assert.equal(labelForTool("apply_patch"), "正在修改文件");
   assert.equal(labelForTool("web__run"), "正在查找资料");
+});
+
+test("distinguishes visible agent replies from reasoning summaries", () => {
+  const visibleReply = {
+    timestamp: "2026-07-21T09:00:00.000Z",
+    type: "event_msg",
+    payload: { type: "agent_message", phase: "commentary", message: "正在核对事件字段" },
+  };
+  const reasoning = {
+    timestamp: "2026-07-21T09:00:01.000Z",
+    type: "event_msg",
+    payload: { type: "agent_reasoning", text: "Adjusting reply reveal policy" },
+  };
+
+  assert.equal(eventSummary(visibleReply), "Codex 发来回复");
+  assert.equal(eventSummary(reasoning), "分析任务");
+
+  const monitor = new CodexMonitor();
+  monitor.state.threadId = "thread-1";
+  monitor.state.startedAt = Date.parse("2026-07-21T08:59:00.000Z");
+  monitor.consume(visibleReply);
+  assert.equal(monitor.state.mode, "reply");
+  assert.equal(monitor.state.detail, "正在核对事件字段");
+  assert.equal(monitor.state.replyFresh, true);
+  const replyAt = monitor.state.replyAt;
+
+  monitor.consume(reasoning, true);
+  assert.equal(monitor.state.mode, "thinking");
+  assert.equal(monitor.state.replyAt, replyAt);
+  assert.equal(monitor.state.replyFresh, false);
 });
 
 test("parses complete JSONL lines and ignores partial lines", () => {
@@ -83,6 +114,59 @@ test("uses the most constrained real Codex quota window", () => {
   assert.equal(quota.remainingPercent, 35);
   assert.equal(quota.windowMinutes, 300);
   assert.equal(quota.limitName, "Codex");
+});
+
+test("keeps quota stable across task logs with different limit pools", () => {
+  const now = Date.parse("2026-07-21T09:00:00.000Z");
+  const reset = Math.floor(now / 1000) + 86400;
+  const quota = quotaFromRateLimitRecords([
+    {
+      observedAt: now - 1000,
+      rateLimits: {
+        limit_id: "codex",
+        primary: { used_percent: 52, window_minutes: 10080, resets_at: reset },
+      },
+    },
+    {
+      observedAt: now,
+      rateLimits: {
+        limit_id: "codex_bengalfox",
+        limit_name: "GPT-5.3-Codex-Spark",
+        primary: { used_percent: 0, window_minutes: 10080, resets_at: reset },
+      },
+    },
+  ], now);
+
+  assert.equal(quota.limitId, "codex");
+  assert.equal(quota.remainingPercent, 48);
+});
+
+test("uses only the newest event for each quota pool", () => {
+  const now = Date.parse("2026-07-21T09:00:00.000Z");
+  const reset = Math.floor(now / 1000) + 86400;
+  const quota = quotaFromRateLimitRecords([
+    { observedAt: now - 2000, rateLimits: { limit_id: "codex", primary: { used_percent: 90, resets_at: reset } } },
+    { observedAt: now - 1000, rateLimits: { limit_id: "codex", primary: { used_percent: 52, resets_at: reset } } },
+  ], now);
+
+  assert.equal(quota.remainingPercent, 48);
+});
+
+test("ignores quota windows whose reset time has passed", () => {
+  const now = Date.parse("2026-07-21T09:00:00.000Z");
+  const quota = quotaFromRateLimitRecords([
+    {
+      observedAt: now - 10000,
+      rateLimits: { limit_id: "codex", primary: { used_percent: 95, resets_at: Math.floor((now - 1000) / 1000) } },
+    },
+    {
+      observedAt: now - 500,
+      rateLimits: { limit_id: "codex_bengalfox", primary: { used_percent: 10, resets_at: Math.floor((now + 86400000) / 1000) } },
+    },
+  ], now);
+
+  assert.equal(quota.limitId, "codex_bengalfox");
+  assert.equal(quota.remainingPercent, 90);
 });
 
 test("lists every running session even when a task start is deep in a large log", (context) => {
