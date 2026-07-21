@@ -20,15 +20,17 @@ function normalizeRevealMs(value) {
 function profileFor(value) {
   const name = normalizeWindowSize(value);
   const scale = WINDOW_SCALES[name];
+  const readableSmall = name === "small";
   return {
     name,
     scale,
+    contentScale: readableSmall ? 1 : scale,
     compact: {
       width: Math.round(450 * scale),
       height: Math.round(66 * scale),
     },
-    expandedWidth: Math.round(550 * scale),
-    settingsHeight: Math.round(340 * scale),
+    expandedWidth: readableSmall ? 500 : Math.round(550 * scale),
+    settingsHeight: readableSmall ? 340 : Math.round(340 * scale),
   };
 }
 
@@ -40,7 +42,7 @@ function expandedSize(value, taskCount = 1, view = "tasks") {
   const visibleRows = Math.max(1, Math.min(5, Number(taskCount) || 1));
   return {
     width: profile.expandedWidth,
-    height: Math.round((250 + visibleRows * 46) * profile.scale),
+    height: Math.round((250 + visibleRows * 46) * profile.contentScale),
   };
 }
 

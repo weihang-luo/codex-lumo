@@ -12,7 +12,8 @@ try {
 
 const MAX_EVENT_HISTORY = 5;
 const MAX_RECONSTRUCT_BYTES = 2 * 1024 * 1024;
-const MAX_TASK_SCAN_BYTES = 4 * 1024 * 1024;
+const TASK_SCAN_CHUNK_BYTES = 512 * 1024;
+const TASK_START_NEEDLE = Buffer.from('"type":"task_started"');
 const RUNNING_TASK_STALE_MS = 12 * 60 * 60 * 1000;
 const THINKING_STAGES = Object.freeze([
   "正在理解上下文",
@@ -125,7 +126,11 @@ function taskSummaryFromEvents(events, options = {}) {
     thinkingStep: 0,
   };
 
-  for (const event of events.slice(lastStart + 1)) {
+  return advanceTaskSummary(task, events.slice(lastStart + 1));
+}
+
+function advanceTaskSummary(task, events) {
+  for (const event of events) {
     const payload = event?.payload || {};
     const type = eventType(event);
     const timestamp = Date.parse(event?.timestamp || "") || task.lastEventAt;
@@ -173,6 +178,52 @@ function taskSummaryFromEvents(events, options = {}) {
   }
 
   return task;
+}
+
+function findLastTaskStartOffset(filePath, fileSize) {
+  let cursor = Math.max(0, Number(fileSize) || 0);
+  let handle = null;
+  try {
+    handle = fs.openSync(filePath, "r");
+    while (cursor > 0) {
+      const start = Math.max(0, cursor - TASK_SCAN_CHUNK_BYTES);
+      const buffer = Buffer.alloc(cursor - start);
+      fs.readSync(handle, buffer, 0, buffer.length, start);
+      const match = buffer.lastIndexOf(TASK_START_NEEDLE);
+      if (match >= 0) {
+        const newline = buffer.lastIndexOf(0x0a, match);
+        return start + newline + 1;
+      }
+      if (start === 0) break;
+      cursor = start + TASK_START_NEEDLE.length - 1;
+    }
+  } catch {
+    return -1;
+  } finally {
+    if (handle !== null) fs.closeSync(handle);
+  }
+  return -1;
+}
+
+function readCompleteEvents(filePath, startOffset, fileSize) {
+  const start = Math.max(0, Math.min(Number(startOffset) || 0, fileSize));
+  if (start >= fileSize) return { events: [], nextOffset: start };
+  let handle = null;
+  try {
+    handle = fs.openSync(filePath, "r");
+    const buffer = Buffer.alloc(fileSize - start);
+    fs.readSync(handle, buffer, 0, buffer.length, start);
+    const lastNewline = buffer.lastIndexOf(0x0a);
+    if (lastNewline < 0) return { events: [], nextOffset: start };
+    return {
+      events: parseJsonLines(buffer.subarray(0, lastNewline + 1).toString("utf8")),
+      nextOffset: start + lastNewline + 1,
+    };
+  } catch {
+    return { events: [], nextOffset: start };
+  } finally {
+    if (handle !== null) fs.closeSync(handle);
+  }
 }
 
 class CodexMonitor extends EventEmitter {
@@ -323,22 +374,33 @@ class CodexMonitor extends EventEmitter {
 
     for (const file of candidates) {
       let cached = this.taskCache.get(file.path);
-      if (!cached || cached.size !== file.size || cached.mtimeMs !== file.mtimeMs) {
-        let summary = null;
-        try {
-          const start = Math.max(0, file.size - MAX_TASK_SCAN_BYTES);
-          const handle = fs.openSync(file.path, "r");
-          const buffer = Buffer.alloc(file.size - start);
-          fs.readSync(handle, buffer, 0, buffer.length, start);
-          fs.closeSync(handle);
-          const metadata = this.readSessionMetadata(file.path);
-          summary = taskSummaryFromEvents(parseJsonLines(buffer.toString("utf8")), {
-            threadId: sessionIdFromPath(file.path),
-            workspace: metadata.cwd || "",
-            mtimeMs: file.mtimeMs,
-          });
-        } catch {}
-        cached = { size: file.size, mtimeMs: file.mtimeMs, summary };
+      if (!cached || file.size < cached.offset) {
+        const start = findLastTaskStartOffset(file.path, file.size);
+        const parsed = start >= 0
+          ? readCompleteEvents(file.path, start, file.size)
+          : { events: [], nextOffset: file.size };
+        const metadata = this.readSessionMetadata(file.path);
+        const summary = taskSummaryFromEvents(parsed.events, {
+          threadId: sessionIdFromPath(file.path),
+          workspace: metadata.cwd || "",
+          mtimeMs: file.mtimeMs,
+        });
+        cached = { offset: parsed.nextOffset, mtimeMs: file.mtimeMs, summary };
+        this.taskCache.set(file.path, cached);
+      } else if (file.size > cached.offset || file.mtimeMs !== cached.mtimeMs) {
+        const parsed = readCompleteEvents(file.path, cached.offset, file.size);
+        const hasNewStart = parsed.events.some((event) => eventType(event) === "task_started");
+        const metadata = hasNewStart ? this.readSessionMetadata(file.path) : null;
+        const summary = hasNewStart
+          ? taskSummaryFromEvents(parsed.events, {
+              threadId: sessionIdFromPath(file.path),
+              workspace: metadata?.cwd || cached.summary?.workspace || "",
+              mtimeMs: file.mtimeMs,
+            })
+          : cached.summary
+            ? advanceTaskSummary({ ...cached.summary }, parsed.events)
+            : null;
+        cached = { offset: parsed.nextOffset, mtimeMs: file.mtimeMs, summary };
         this.taskCache.set(file.path, cached);
       }
 
@@ -549,6 +611,7 @@ class CodexMonitor extends EventEmitter {
 }
 
 module.exports = {
+  advanceTaskSummary,
   CodexMonitor,
   eventSummary,
   extractMessageText,

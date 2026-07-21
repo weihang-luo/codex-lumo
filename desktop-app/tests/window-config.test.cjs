@@ -24,4 +24,6 @@ test("provides proportional compact window profiles", () => {
 test("sizes task and settings views independently", () => {
   assert.deepEqual(expandedSize("medium", 3, "tasks"), { width: 550, height: 388 });
   assert.deepEqual(expandedSize("medium", 3, "settings"), { width: 550, height: 340 });
+  assert.deepEqual(expandedSize("small", 1, "tasks"), { width: 500, height: 296 });
+  assert.deepEqual(expandedSize("small", 1, "settings"), { width: 500, height: 340 });
 });

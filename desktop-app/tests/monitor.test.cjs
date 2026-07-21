@@ -1,6 +1,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const {
+  CodexMonitor,
   eventSummary,
   labelForTool,
   parseJsonLines,
@@ -62,4 +66,36 @@ test("exposes rotating high-level thinking stages", () => {
   assert.equal(thinkingStage(0), "正在理解上下文");
   assert.equal(thinkingStage(3), "正在规划下一步");
   assert.equal(thinkingStage(4), "正在理解上下文");
+});
+
+test("lists every running session even when a task start is deep in a large log", (context) => {
+  const codexRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lumo-monitor-"));
+  const sessionsRoot = path.join(codexRoot, "sessions", "2026", "07", "21");
+  fs.mkdirSync(sessionsRoot, { recursive: true });
+  context.after(() => fs.rmSync(codexRoot, { recursive: true, force: true }));
+
+  const makeSession = (id, title, fillerBytes) => {
+    const filePath = path.join(sessionsRoot, `rollout-2026-07-21T10-00-00-${id}.jsonl`);
+    const started = { timestamp: new Date().toISOString(), payload: { type: "task_started" } };
+    const message = { timestamp: new Date().toISOString(), payload: { type: "user_message", message: title } };
+    fs.writeFileSync(filePath, `${JSON.stringify(started)}\n${JSON.stringify(message)}\n`, "utf8");
+    if (fillerBytes) {
+      const filler = { timestamp: new Date().toISOString(), payload: { type: "agent_reasoning", text: "x".repeat(fillerBytes) } };
+      fs.appendFileSync(filePath, `${JSON.stringify(filler)}\n`, "utf8");
+    }
+    const tool = { timestamp: new Date().toISOString(), payload: { type: "custom_tool_call", name: "shell_command" } };
+    fs.appendFileSync(filePath, `${JSON.stringify(tool)}\n`, "utf8");
+    const stat = fs.statSync(filePath);
+    return { path: filePath, size: stat.size, mtimeMs: stat.mtimeMs };
+  };
+
+  const candidates = [
+    makeSession("019f8270-6c25-74a1-9f81-d9c85037ef11", "大型日志任务", 5 * 1024 * 1024),
+    makeSession("019f8270-6c25-74a1-9f81-d9c85037ef12", "并行任务", 0),
+  ];
+  const monitor = new CodexMonitor({ codexRoot });
+  const tasks = monitor.scanRunningTasks(candidates);
+
+  assert.equal(tasks.length, 2);
+  assert.deepEqual(new Set(tasks.map((task) => task.task)), new Set(["大型日志任务", "并行任务"]));
 });

@@ -11,22 +11,55 @@ let lastProgress = -1;
 let lastTaskSignature = "";
 let renderedTaskCount = 1;
 let statePulseTimer = null;
-let boredTimer = null;
-let boredClearTimer = null;
+let petActionTimer = null;
+let petActionClearTimer = null;
 let gesture = null;
 
-const BORED_MOVES = ["look", "wave", "stretch", "dance", "shuffle", "moonwalk", "spin", "robot", "bounce"];
-const BORED_DURATIONS = {
-  look: 1700,
-  wave: 1600,
-  stretch: 1800,
-  dance: 2200,
-  shuffle: 2100,
-  moonwalk: 2400,
-  spin: 1900,
-  robot: 2300,
-  bounce: 1900,
+const PET_ACTIONS = {
+  thinking: [
+    { name: "ponder", duration: 2200 },
+    { name: "calculate", duration: 1900 },
+    { name: "idea", duration: 1800 },
+  ],
+  working: [
+    { name: "type", duration: 1700 },
+    { name: "scan", duration: 2000 },
+    { name: "build", duration: 1800 },
+    { name: "dash", duration: 1700 },
+  ],
+  waiting: [
+    { name: "peek", duration: 1900 },
+    { name: "listen", duration: 2300 },
+    { name: "tap", duration: 1800 },
+  ],
+  done: [
+    { name: "cheer", duration: 1800 },
+    { name: "jump", duration: 1600 },
+    { name: "wave", duration: 2000 },
+    { name: "dance", duration: 2200 },
+  ],
+  error: [
+    { name: "panic", duration: 1500 },
+    { name: "diagnose", duration: 2200 },
+    { name: "reboot", duration: 2000 },
+  ],
+  resting: [
+    { name: "look", duration: 1700 },
+    { name: "wave", duration: 1600 },
+    { name: "stretch", duration: 1800 },
+    { name: "dance", duration: 2200 },
+    { name: "shuffle", duration: 2100 },
+    { name: "moonwalk", duration: 2400 },
+    { name: "spin", duration: 1900 },
+    { name: "robot", duration: 2300 },
+    { name: "bounce", duration: 1900 },
+  ],
+  offline: [
+    { name: "sleep", duration: 2800 },
+    { name: "power-save", duration: 2400 },
+  ],
 };
+const lastActionByMode = new Map();
 
 const elements = {
   connection: document.getElementById("connection"),
@@ -34,7 +67,6 @@ const elements = {
   detail: document.getElementById("detail"),
   taskTitle: document.getElementById("taskTitle"),
   elapsed: document.getElementById("elapsed"),
-  progress: document.getElementById("progress"),
   taskCount: document.getElementById("taskCount"),
   taskList: document.getElementById("taskList"),
   workspace: document.getElementById("workspace"),
@@ -160,14 +192,13 @@ function renderTasks(state) {
     metrics.className = "task-metrics";
     const elapsed = document.createElement("time");
     elapsed.textContent = formatTime(task.elapsedSeconds);
-    const progress = document.createElement("b");
-    progress.textContent = `${clamp(task.progress)}%`;
-    metrics.append(elapsed, progress);
+    const activity = document.createElement("b");
+    activity.textContent = task.mode === "waiting" ? "WAIT" : "LIVE";
+    metrics.append(elapsed, activity);
 
     const track = document.createElement("span");
     track.className = "task-track";
     const fill = document.createElement("i");
-    fill.style.width = `${clamp(task.progress)}%`;
     track.append(fill);
 
     item.append(signal, copy, phase, metrics, track);
@@ -175,24 +206,39 @@ function renderTasks(state) {
   });
 }
 
-function scheduleBoredMove(mode) {
-  clearTimeout(boredTimer);
-  clearTimeout(boredClearTimer);
-  delete island.dataset.bored;
-  if (mode !== "resting") return;
+function nextPetAction(mode) {
+  const actions = PET_ACTIONS[mode] || PET_ACTIONS.resting;
+  const previous = lastActionByMode.get(mode);
+  const candidates = actions.length > 1 ? actions.filter((action) => action.name !== previous) : actions;
+  const action = candidates[Math.floor(Math.random() * candidates.length)];
+  lastActionByMode.set(mode, action.name);
+  return action;
+}
 
-  boredTimer = setTimeout(() => {
-    const move = BORED_MOVES[Math.floor(Math.random() * BORED_MOVES.length)];
-    island.dataset.bored = move;
-    boredClearTimer = setTimeout(() => {
-      delete island.dataset.bored;
-      scheduleBoredMove(mode);
-    }, BORED_DURATIONS[move] + Math.floor(Math.random() * 240));
-  }, 3200 + Math.floor(Math.random() * 6200));
+function schedulePetAction(mode, delay = 0) {
+  clearTimeout(petActionTimer);
+  clearTimeout(petActionClearTimer);
+  delete island.dataset.action;
+
+  const play = () => {
+    if (island.dataset.mode !== mode) return;
+    const action = nextPetAction(mode);
+    island.dataset.action = action.name;
+    petActionClearTimer = setTimeout(() => {
+      delete island.dataset.action;
+      const gap = mode === "resting"
+        ? 1200 + Math.floor(Math.random() * 2400)
+        : 380 + Math.floor(Math.random() * 720);
+      petActionTimer = setTimeout(() => schedulePetAction(island.dataset.mode), gap);
+    }, action.duration);
+  };
+
+  if (delay > 0) petActionTimer = setTimeout(play, delay);
+  else play();
 }
 
 function animateStateChange(mode, progress) {
-  if (mode !== lastMode) scheduleBoredMove(mode);
+  if (mode !== lastMode) schedulePetAction(mode);
   if ((lastMode && mode !== lastMode) || (lastProgress >= 0 && progress !== lastProgress)) {
     clearTimeout(statePulseTimer);
     island.classList.remove("state-pulse");
@@ -211,8 +257,6 @@ function render(state) {
   const mode = state.mode || "resting";
   const taskCount = currentTasks(state).length;
   island.dataset.mode = mode;
-  island.style.setProperty("--progress", `${progress * 3.6}deg`);
-  island.style.setProperty("--progress-percent", `${progress}%`);
   elements.connection.textContent = state.connection === "connected"
     ? `CODEX / ${taskCount || 0} ACTIVE`
     : "LOCAL CODEX";
@@ -222,7 +266,6 @@ function render(state) {
   elements.taskTitle.textContent = state.task || "等待下一项任务";
   elements.taskTitle.title = state.task || "";
   elements.elapsed.textContent = formatTime(state.elapsedSeconds);
-  elements.progress.textContent = String(progress);
   elements.workspace.textContent = compactPath(state.workspace);
   animateStateChange(mode, progress);
   renderTasks(state);
