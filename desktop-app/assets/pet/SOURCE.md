@@ -1,9 +1,15 @@
-# Lumo pet sprite source
+# Lumo pet sources
 
-The Lumo pet frames are derived from **Cute Robot (1.0)**.
+The active Lumo character is an adapted inline SVG based on **Cyborg** from
+[React Kawaii](https://github.com/elizabetdev/react-kawaii).
 
-- Commissioned from: mayakhan95
-- Distributed by: Foozle — https://foozlecc.itch.io/cute-platformer-robot
-- License: Creative Commons Zero (CC0 1.0) — https://creativecommons.org/publicdomain/zero/1.0/
+- Author: Elizabet aka Miuki Miu
+- Upstream revision reviewed: `3cbc09cb8ba411d7ece446ea46bb908260e99280`
+- License: MIT; see `REACT-KAWAII-LICENSE.txt`
 
-The original idle, walk, run, and jump frames were downsampled and recolored by the Codex Lumo project to create compact neon pixel-animation strips. CC0 permits use and modification for commercial and non-commercial projects; attribution is not required.
+The adaptation keeps the rounded body and four-limb silhouette, adds Codex
+status expressions, independently animated arms, an antenna, and cyberpunk
+cyan/magenta/violet colors suitable for the compact floating window.
+
+The legacy `lumo-*.png` sprite strips in this folder were derived from
+Foozle's CC0 **Cute Platformer Robot** but are no longer loaded by the app.

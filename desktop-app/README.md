@@ -12,6 +12,6 @@ Windows 透明置顶悬浮窗。应用只读监听本机 `%USERPROFILE%\.codex\s
 
 紧凑态会显示 Codex 当前的高层阶段（思考、执行、等待、完成等）、CPU 和内存使用率。
 
-Lumo 使用单色绿色荧光管 HUD 和像素 CRT 电视脸；脸部表情会随任务状态切换，待机时会随机挥手、伸展、跳舞、shuffle、moonwalk、旋转和机器人舞。
+Lumo 的宠物形象改编自 MIT 许可的 React Kawaii `Cyborg`：圆润的 SVG 机器人会随任务状态切换表情，待机时会随机挥手、伸展、跳舞、shuffle、moonwalk、旋转和机器人舞。
 
 所有日志和电脑状态解析都在本机完成。应用只显示高层思考阶段，不展示内部推理文本，也不会上传 Codex 日志。
