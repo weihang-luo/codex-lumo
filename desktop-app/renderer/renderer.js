@@ -15,7 +15,18 @@ let boredTimer = null;
 let boredClearTimer = null;
 let gesture = null;
 
-const BORED_MOVES = ["look", "wave", "stretch", "dance"];
+const BORED_MOVES = ["look", "wave", "stretch", "dance", "shuffle", "moonwalk", "spin", "robot", "bounce"];
+const BORED_DURATIONS = {
+  look: 1700,
+  wave: 1600,
+  stretch: 1800,
+  dance: 2200,
+  shuffle: 2100,
+  moonwalk: 2400,
+  spin: 1900,
+  robot: 2300,
+  bounce: 1900,
+};
 
 const elements = {
   connection: document.getElementById("connection"),
@@ -171,11 +182,12 @@ function scheduleBoredMove(mode) {
   if (mode !== "resting") return;
 
   boredTimer = setTimeout(() => {
-    island.dataset.bored = BORED_MOVES[Math.floor(Math.random() * BORED_MOVES.length)];
+    const move = BORED_MOVES[Math.floor(Math.random() * BORED_MOVES.length)];
+    island.dataset.bored = move;
     boredClearTimer = setTimeout(() => {
       delete island.dataset.bored;
       scheduleBoredMove(mode);
-    }, 1600 + Math.floor(Math.random() * 700));
+    }, BORED_DURATIONS[move] + Math.floor(Math.random() * 240));
   }, 3200 + Math.floor(Math.random() * 6200));
 }
 
