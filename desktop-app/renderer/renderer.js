@@ -257,6 +257,7 @@ function render(state) {
   const mode = state.mode || "resting";
   const taskCount = currentTasks(state).length;
   island.dataset.mode = mode;
+  island.dataset.activeTasks = String(taskCount);
   elements.connection.textContent = state.connection === "connected"
     ? `CODEX / ${taskCount || 0} ACTIVE`
     : "LOCAL CODEX";

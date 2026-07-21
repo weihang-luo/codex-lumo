@@ -114,6 +114,7 @@ button { font: inherit; }
 .island[data-mode="error"]::before { animation-duration: 980ms; }
 .island[data-mode="resting"]::before { animation-duration: 8s; opacity: 0.66; }
 .island[data-mode="offline"]::before { animation: none; opacity: 0.2; }
+.island[data-active-tasks="0"]::before { animation: none; opacity: 0.3; }
 
 .island::after {
   content: "";
