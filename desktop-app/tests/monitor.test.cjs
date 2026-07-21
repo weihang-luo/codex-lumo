@@ -94,6 +94,28 @@ test("excludes completed and aborted turns from running tasks", () => {
   assert.equal(taskSummaryFromEvents([start, aborted]), null);
 });
 
+test("does not revive an old completion after the task list becomes idle", () => {
+  const monitor = new CodexMonitor();
+  let queried = false;
+  monitor.db = {
+    prepare() {
+      queried = true;
+      return { all: () => [] };
+    },
+  };
+  monitor.state.threadId = "thread-1";
+  monitor.state.startedAt = Date.now() - 60000;
+  monitor.state.mode = "resting";
+  monitor.state.phase = "待机中";
+  monitor.state.tasks = [];
+
+  monitor.checkCompletionFromLogs();
+
+  assert.equal(queried, false);
+  assert.equal(monitor.state.mode, "resting");
+  assert.equal(monitor.state.phase, "待机中");
+});
+
 test("exposes rotating high-level thinking stages", () => {
   assert.equal(thinkingStage(0), "正在理解上下文");
   assert.equal(thinkingStage(3), "正在规划下一步");

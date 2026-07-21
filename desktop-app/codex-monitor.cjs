@@ -714,7 +714,8 @@ class CodexMonitor extends EventEmitter {
   }
 
   checkCompletionFromLogs() {
-    if (!this.db || !this.state.threadId || !this.state.startedAt || this.state.mode === "done") return;
+    const activeTask = (this.state.tasks || []).some((task) => task.id === this.state.threadId);
+    if (!this.db || !this.state.threadId || !this.state.startedAt || this.state.mode === "done" || !activeTask) return;
     try {
       const minTs = Math.floor(this.state.startedAt / 1000);
       const rows = this.db
