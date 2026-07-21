@@ -116,6 +116,25 @@ test("does not revive an old completion after the task list becomes idle", () =>
   assert.equal(monitor.state.phase, "待机中");
 });
 
+test("deduplicates unchanged state snapshots and supports background polling", () => {
+  const monitor = new CodexMonitor({
+    pollIntervalMs: 700,
+    rescanIntervalMs: 2800,
+    backgroundPollMs: 2000,
+    backgroundRescanMs: 10000,
+  });
+  let emitted = 0;
+  monitor.on("state", () => { emitted += 1; });
+
+  assert.equal(monitor.emitState(), true);
+  assert.equal(monitor.emitState(), false);
+  assert.equal(emitted, 1);
+  assert.equal(monitor.setPowerSave(true), true);
+  assert.equal(monitor.powerSaving, true);
+  assert.equal(monitor.setPowerSave(false), false);
+  monitor.stop();
+});
+
 test("exposes rotating high-level thinking stages", () => {
   assert.equal(thinkingStage(0), "正在理解上下文");
   assert.equal(thinkingStage(3), "正在规划下一步");

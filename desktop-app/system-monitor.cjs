@@ -30,7 +30,9 @@ function memoryPercent(total = os.totalmem(), free = os.freemem()) {
 class SystemMonitor extends EventEmitter {
   constructor(options = {}) {
     super();
-    this.intervalMs = options.intervalMs || 2000;
+    this.foregroundIntervalMs = options.intervalMs || 2000;
+    this.backgroundIntervalMs = options.backgroundIntervalMs || 15000;
+    this.intervalMs = this.foregroundIntervalMs;
     this.previousCpu = cpuSnapshot();
     this.timer = null;
     this.state = {
@@ -42,13 +44,27 @@ class SystemMonitor extends EventEmitter {
 
   start() {
     this.sample();
-    this.timer = setInterval(() => this.sample(), this.intervalMs);
+    this.schedule();
     return this;
   }
 
   stop() {
     clearInterval(this.timer);
     this.timer = null;
+  }
+
+  schedule() {
+    clearInterval(this.timer);
+    this.timer = setInterval(() => this.sample(), this.intervalMs);
+  }
+
+  setPowerSave(enabled) {
+    const nextInterval = enabled ? this.backgroundIntervalMs : this.foregroundIntervalMs;
+    if (nextInterval === this.intervalMs) return this.intervalMs;
+    this.intervalMs = nextInterval;
+    if (!enabled) this.sample();
+    if (this.timer) this.schedule();
+    return this.intervalMs;
   }
 
   snapshot() {

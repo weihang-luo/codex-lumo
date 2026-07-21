@@ -332,6 +332,13 @@ class CodexMonitor extends EventEmitter {
     this.activeOffset = 0;
     this.pollTimer = null;
     this.rescanTimer = null;
+    this.started = false;
+    this.powerSaving = false;
+    this.foregroundPollMs = options.pollIntervalMs || 700;
+    this.foregroundRescanMs = options.rescanIntervalMs || 2800;
+    this.backgroundPollMs = options.backgroundPollMs || 2000;
+    this.backgroundRescanMs = options.backgroundRescanMs || 10000;
+    this.lastStateSignature = "";
     this.db = null;
     this.lastCompletionCheck = 0;
     this.taskCache = new Map();
@@ -364,8 +371,8 @@ class CodexMonitor extends EventEmitter {
   start() {
     this.openLogsDatabase();
     this.scanForActiveSession(true);
-    this.pollTimer = setInterval(() => this.poll(), 700);
-    this.rescanTimer = setInterval(() => this.scanForActiveSession(false), 2800);
+    this.started = true;
+    this.scheduleTimers();
     return this;
   }
 
@@ -374,12 +381,36 @@ class CodexMonitor extends EventEmitter {
     clearInterval(this.rescanTimer);
     this.pollTimer = null;
     this.rescanTimer = null;
+    this.started = false;
     if (this.db) {
       try {
         this.db.close();
       } catch {}
     }
     this.db = null;
+  }
+
+  scheduleTimers() {
+    clearInterval(this.pollTimer);
+    clearInterval(this.rescanTimer);
+    const pollMs = this.powerSaving ? this.backgroundPollMs : this.foregroundPollMs;
+    const rescanMs = this.powerSaving ? this.backgroundRescanMs : this.foregroundRescanMs;
+    this.pollTimer = setInterval(() => this.poll(), pollMs);
+    this.rescanTimer = setInterval(() => this.scanForActiveSession(false), rescanMs);
+  }
+
+  setPowerSave(enabled) {
+    const next = Boolean(enabled);
+    if (next === this.powerSaving) return this.powerSaving;
+    this.powerSaving = next;
+    if (this.started) {
+      if (!next) {
+        this.scanForActiveSession(false);
+        this.poll();
+      }
+      this.scheduleTimers();
+    }
+    return this.powerSaving;
   }
 
   snapshot() {
@@ -393,6 +424,14 @@ class CodexMonitor extends EventEmitter {
         : 0,
     }));
     return { ...this.state, elapsedSeconds, tasks };
+  }
+
+  emitState(force = false) {
+    const signature = JSON.stringify(this.state);
+    if (!force && signature === this.lastStateSignature) return false;
+    this.lastStateSignature = signature;
+    this.emit("state", this.snapshot());
+    return true;
   }
 
   openLogsDatabase() {
@@ -466,7 +505,10 @@ class CodexMonitor extends EventEmitter {
     const newest = runningTasks.length
       ? ranked.find((file) => file.path === runningTasks[0].filePath) || ranked[0]
       : ranked[0];
-    if (!force && newest.path === this.activeFile) return;
+    if (!force && newest.path === this.activeFile) {
+      this.emitState();
+      return;
+    }
     this.followFile(newest.path, newest.size);
   }
 
@@ -601,7 +643,7 @@ class CodexMonitor extends EventEmitter {
     if (this.state.mode === "done" && now - this.state.lastEventAt > 30000) {
       this.update({ mode: "resting", phase: "待机中", detail: "Lumo 正在等待下一项任务" });
     }
-    this.emit("state", this.snapshot());
+    this.emitState();
   }
 
   readAppended(reconstruct) {
@@ -633,7 +675,7 @@ class CodexMonitor extends EventEmitter {
     const lastStart = events.map((event) => event?.payload?.type).lastIndexOf("task_started");
     const slice = lastStart >= 0 ? events.slice(lastStart) : events.slice(-120);
     slice.forEach((event) => this.consume(event, true));
-    this.emit("state", this.snapshot());
+    this.emitState(true);
   }
 
   consume(event, quiet = false) {
@@ -759,7 +801,7 @@ class CodexMonitor extends EventEmitter {
 
   update(patch, quiet = false) {
     this.state = { ...this.state, ...patch };
-    if (!quiet) this.emit("state", this.snapshot());
+    if (!quiet) this.emitState();
   }
 }
 

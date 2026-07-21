@@ -16,6 +16,7 @@ let petActionClearTimer = null;
 let gesture = null;
 let activationTimer = null;
 let lastActivationAt = 0;
+let powerSaving = false;
 const DOUBLE_CLICK_MS = 320;
 
 const PET_ACTIONS = {
@@ -323,6 +324,7 @@ function animateStateChange(mode, progress) {
 function render(state) {
   if (!state) return;
   latestState = state;
+  if (powerSaving) return;
   const progress = clamp(state.progress);
   const mode = state.mode || "resting";
   const taskCount = currentTasks(state).length;
@@ -351,6 +353,7 @@ function render(state) {
 function renderSystem(state) {
   if (!state) return;
   latestSystem = state;
+  if (powerSaving) return;
   const cpu = clamp(state.cpu);
   const memory = clamp(state.memory);
 
@@ -455,6 +458,23 @@ window.lumo.onSettings((settings) => {
 window.lumo.onDockMotion((phase) => {
   island.dataset.dockMotion = phase || "visible";
 });
+window.lumo.onPowerSave((enabled) => {
+  powerSaving = enabled;
+  island.dataset.powerSave = String(powerSaving);
+  if (powerSaving) {
+    clearTimeout(petActionTimer);
+    clearTimeout(petActionClearTimer);
+    clearTimeout(statePulseTimer);
+    clearTimeout(activationTimer);
+    lastActivationAt = 0;
+    island.classList.remove("state-pulse");
+    delete island.dataset.action;
+    return;
+  }
+  render(latestState);
+  renderSystem(latestSystem);
+  schedulePetAction(island.dataset.mode || "resting", 300);
+});
 
 document.body.addEventListener("mouseenter", () => window.lumo.setHovered(true));
 document.body.addEventListener("mouseleave", () => window.lumo.setHovered(false));
@@ -466,7 +486,7 @@ window.lumo.getState().then(render);
 window.lumo.getSystem().then(renderSystem);
 
 setInterval(() => {
-  if (!latestState) return;
+  if (!latestState || powerSaving) return;
   const elapsedSeconds = latestState.startedAt
     ? Math.max(0, Math.floor((Date.now() - latestState.startedAt) / 1000))
     : 0;

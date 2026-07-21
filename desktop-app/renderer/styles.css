@@ -716,6 +716,17 @@ footer { display: flex; align-items: center; justify-content: space-between; col
 .island[data-dock-motion="showing"] .primary { animation: dockContentReveal 300ms cubic-bezier(0.16, 1, 0.3, 1); }
 .island[data-dock-motion="hiding"] .primary { animation: dockContentHide 360ms cubic-bezier(0.65, 0, 0.35, 1); }
 
+.island[data-power-save="true"],
+.island[data-power-save="true"]::before,
+.island[data-power-save="true"]::after,
+.island[data-power-save="true"] *,
+.island[data-power-save="true"] *::before,
+.island[data-power-save="true"] *::after {
+  animation-play-state: paused !important;
+  transition: none !important;
+  will-change: auto !important;
+}
+
 @keyframes spriteFrames { from { background-position: 0 0; } to { background-position: -448px 0; } }
 @keyframes petFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
 @keyframes petWork { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(1px, -1px); } }

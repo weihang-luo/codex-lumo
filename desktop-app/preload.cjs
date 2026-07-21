@@ -43,4 +43,9 @@ contextBridge.exposeInMainWorld("lumo", {
     ipcRenderer.on("lumo:dock-motion", handler);
     return () => ipcRenderer.removeListener("lumo:dock-motion", handler);
   },
+  onPowerSave: (callback) => {
+    const handler = (_event, enabled) => callback(Boolean(enabled));
+    ipcRenderer.on("lumo:power-save", handler);
+    return () => ipcRenderer.removeListener("lumo:power-save", handler);
+  },
 });

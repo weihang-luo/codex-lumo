@@ -40,6 +40,8 @@ let savePositionTimer = null;
 let topHideTimer = null;
 let topAnimationTimer = null;
 let cursorPollTimer = null;
+let powerSaving = false;
+let trayMenuSignature = "";
 let dockedTop = false;
 let hiddenAtTop = false;
 let windowHovered = false;
@@ -125,6 +127,7 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      backgroundThrottling: true,
     },
   });
 
@@ -145,6 +148,8 @@ function createWindow() {
       mainWindow.hide();
     }
   });
+  mainWindow.on("show", syncWindowPowerState);
+  mainWindow.on("hide", syncWindowPowerState);
   mainWindow.on("move", () => {
     if (internalMove || dragSession) return;
     clearTimeout(savePositionTimer);
@@ -173,6 +178,48 @@ function sendDockMotion(phase) {
   mainWindow?.webContents.send("lumo:dock-motion", phase);
 }
 
+function stopCursorPoll() {
+  clearInterval(cursorPollTimer);
+  cursorPollTimer = null;
+}
+
+function startCursorPoll() {
+  if (cursorPollTimer) return;
+  cursorPollTimer = setInterval(() => {
+    if (!mainWindow || !hiddenAtTop) return;
+    const point = screen.getCursorScreenPoint();
+    const bounds = mainWindow.getBounds();
+    const workArea = screen.getDisplayMatching(bounds).workArea;
+    const overPeek =
+      point.x >= bounds.x &&
+      point.x <= bounds.x + bounds.width &&
+      point.y >= workArea.y &&
+      point.y <= workArea.y + TOP_PEEK_HEIGHT + 6;
+    if (overPeek) {
+      windowHovered = true;
+      revealTop();
+    }
+  }, 250);
+}
+
+function syncWindowPowerState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (hiddenAtTop && mainWindow.isVisible()) startCursorPoll();
+  else stopCursorPoll();
+
+  const next = hiddenAtTop || !mainWindow.isVisible();
+  if (next === powerSaving) return;
+  powerSaving = next;
+  monitor?.setPowerSave(powerSaving);
+  systemMonitor?.setPowerSave(powerSaving);
+  mainWindow.webContents.send("lumo:power-save", powerSaving);
+  if (!powerSaving) {
+    if (latestState) mainWindow.webContents.send("lumo:state", latestState);
+    if (latestSystem) mainWindow.webContents.send("lumo:system", latestSystem);
+  }
+  rebuildTrayMenu();
+}
+
 function animateWindowY(targetY, duration, motion) {
   if (!mainWindow) return;
   clearInterval(topAnimationTimer);
@@ -187,6 +234,7 @@ function animateWindowY(targetY, duration, motion) {
   }
   if (startY === destinationY) {
     sendDockMotion(motion === "showing" ? "visible" : "hidden");
+    syncWindowPowerState();
     return;
   }
 
@@ -221,6 +269,7 @@ function animateWindowY(targetY, duration, motion) {
         internalMove = false;
       }, 40);
       sendDockMotion(motion === "showing" ? "visible" : "hidden");
+      syncWindowPowerState();
     }
   }, 16);
 }
@@ -270,6 +319,7 @@ function moveWindowDrag(screenX, screenY) {
     settings.dockedTop = false;
     revealUntil = 0;
     sendDockMotion("visible");
+    syncWindowPowerState();
   }
 
   internalMove = true;
@@ -317,6 +367,7 @@ function revealTop(duration = 0) {
   const bounds = mainWindow.getBounds();
   const workArea = screen.getDisplayMatching(bounds).workArea;
   hiddenAtTop = false;
+  syncWindowPowerState();
   if (duration > 0) revealUntil = Math.max(revealUntil, Date.now() + duration);
   animateWindowY(workArea.y + TOP_DOCK_GAP, 300, "showing");
   if (duration > 0) scheduleTopHide(duration + 220);
@@ -403,6 +454,17 @@ function updateSettings(patch = {}) {
 function rebuildTrayMenu() {
   if (!tray) return;
   const status = latestState ? `${latestState.phase} · ${latestState.progress}%` : "正在连接 Codex";
+  const signature = JSON.stringify({
+    status,
+    visible: Boolean(mainWindow?.isVisible()),
+    clickThrough,
+    autoHideTop: settings.autoHideTop,
+    windowSize: settings.windowSize,
+    updateRevealMs: settings.updateRevealMs,
+    launchAtLogin: settings.launchAtLogin,
+  });
+  if (signature === trayMenuSignature) return;
+  trayMenuSignature = signature;
   tray.setToolTip(`Codex Lumo — ${status}`);
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -492,6 +554,7 @@ function resizeWindow(expanded, taskCount = 1, view = "tasks") {
     ? display.y + TOP_DOCK_GAP
     : Math.max(display.y, Math.min(display.y + display.height - next.height, current.y));
   hiddenAtTop = false;
+  syncWindowPowerState();
   setBoundsInternally({ x, y, ...next }, true);
   if (dockedTop && !windowExpanded) scheduleTopHide(900);
   return true;
@@ -564,29 +627,14 @@ if (!gotLock) {
       }
     });
 
-    cursorPollTimer = setInterval(() => {
-      if (!mainWindow || !hiddenAtTop) return;
-      const point = screen.getCursorScreenPoint();
-      const bounds = mainWindow.getBounds();
-      const workArea = screen.getDisplayMatching(bounds).workArea;
-      const overPeek =
-        point.x >= bounds.x &&
-        point.x <= bounds.x + bounds.width &&
-        point.y >= workArea.y &&
-        point.y <= workArea.y + TOP_PEEK_HEIGHT + 6;
-      if (overPeek) {
-        windowHovered = true;
-        revealTop();
-      }
-    }, 120);
-
     monitor = new CodexMonitor();
     monitor.on("state", (state) => {
       latestState = state;
-      mainWindow?.webContents.send("lumo:state", state);
-      if (progressRevealPolicy.shouldReveal(state) && dockedTop && settings.updateRevealMs > 0) {
+      const shouldReveal = progressRevealPolicy.shouldReveal(state) && dockedTop && settings.updateRevealMs > 0;
+      if (shouldReveal) {
         revealTop(settings.updateRevealMs);
       }
+      if (!powerSaving || shouldReveal) mainWindow?.webContents.send("lumo:state", state);
       rebuildTrayMenu();
     });
     monitor.start();
@@ -594,9 +642,10 @@ if (!gotLock) {
     systemMonitor = new SystemMonitor();
     systemMonitor.on("state", (state) => {
       latestSystem = state;
-      mainWindow?.webContents.send("lumo:system", state);
+      if (!powerSaving) mainWindow?.webContents.send("lumo:system", state);
     });
     systemMonitor.start();
+    syncWindowPowerState();
   });
 }
 
@@ -605,7 +654,7 @@ app.on("before-quit", () => {
   isQuitting = true;
   monitor?.stop();
   systemMonitor?.stop();
-  clearInterval(cursorPollTimer);
+  stopCursorPoll();
   clearInterval(topAnimationTimer);
   globalShortcut.unregisterAll();
 });
