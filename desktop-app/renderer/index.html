@@ -12,15 +12,23 @@
   </head>
   <body>
     <section class="island" id="island" data-mode="resting" data-expanded="false">
+      <div class="motion-layer" aria-hidden="true"><i></i><i></i><i></i></div>
       <header class="primary drag-region">
         <div class="pet-wrap" aria-hidden="true">
-          <div class="pet">
-            <i class="ear ear-left"></i>
-            <i class="ear ear-right"></i>
-            <span class="body">
-              <span class="face"><i></i><i></i><b></b></span>
-              <span class="core"></span>
+          <div class="pixel-pet">
+            <i class="pixel-antenna"></i>
+            <i class="pixel-ear pixel-ear-left"></i>
+            <i class="pixel-ear pixel-ear-right"></i>
+            <span class="pixel-body">
+              <span class="pixel-face"><i></i><i></i><b></b></span>
+              <span class="pixel-core"></span>
             </span>
+            <span class="pixel-tail"><i></i><i></i><i></i></span>
+            <span class="pixel-fx pixel-fx-one"></span>
+            <span class="pixel-fx pixel-fx-two"></span>
+            <span class="pixel-orbit pixel-orbit-one"></span>
+            <span class="pixel-orbit pixel-orbit-two"></span>
+            <span class="pixel-sleep">Z</span>
           </div>
         </div>
 
@@ -36,7 +44,7 @@
         </div>
 
         <button class="progress no-drag" id="progressButton" aria-label="展开任务详情">
-          <span id="progress">0</span>
+          <span id="progress">0</span><i>%</i>
         </button>
 
         <div class="window-actions no-drag">
@@ -46,22 +54,14 @@
       </header>
 
       <div class="details">
-        <div class="task-card">
-          <div class="task-head">
-            <div>
-              <span class="micro">CURRENT TASK</span>
-              <h1 id="task">等待下一项任务</h1>
-            </div>
-            <span class="live-badge"><i></i>只读监听</span>
+        <div class="task-panel">
+          <div class="panel-head">
+            <div><span class="micro">ACTIVE TASKS</span><strong>正在运行的任务</strong></div>
+            <span class="live-badge"><i></i><b id="taskCount">0</b> RUNNING</span>
           </div>
-
-          <div class="track"><span id="track"></span></div>
-
-          <div class="stats">
-            <div><span>状态</span><strong id="statPhase">待机</strong></div>
-            <div><span>任务进度</span><strong id="statProgress">0%</strong></div>
-            <div><span>专注时长</span><strong id="statElapsed">00:00</strong></div>
-          </div>
+          <ol class="task-list" id="taskList">
+            <li class="task-empty"><span>等待 Codex 任务</span></li>
+          </ol>
         </div>
 
         <div class="event-panel">

@@ -12,6 +12,8 @@ try {
 
 const MAX_EVENT_HISTORY = 5;
 const MAX_RECONSTRUCT_BYTES = 2 * 1024 * 1024;
+const MAX_TASK_SCAN_BYTES = 4 * 1024 * 1024;
+const RUNNING_TASK_STALE_MS = 12 * 60 * 60 * 1000;
 
 function stripInjectedContext(text = "") {
   let value = String(text);
@@ -89,6 +91,75 @@ function parseJsonLines(buffer) {
   return events;
 }
 
+function eventType(event) {
+  return event?.payload?.type || event?.type || "";
+}
+
+function taskSummaryFromEvents(events, options = {}) {
+  const lastStart = events.map(eventType).lastIndexOf("task_started");
+  if (lastStart < 0) return null;
+
+  const startedEvent = events[lastStart];
+  const startedAt = Date.parse(startedEvent?.timestamp || "") || options.mtimeMs || Date.now();
+  const task = {
+    id: options.threadId || "",
+    task: "正在处理 Codex 任务",
+    mode: "thinking",
+    phase: "思考中",
+    detail: "正在理解任务",
+    progress: 8,
+    startedAt,
+    lastEventAt: startedAt,
+    workspace: options.workspace || "",
+  };
+
+  for (const event of events.slice(lastStart + 1)) {
+    const payload = event?.payload || {};
+    const type = eventType(event);
+    const timestamp = Date.parse(event?.timestamp || "") || task.lastEventAt;
+    task.lastEventAt = Math.max(task.lastEventAt, timestamp);
+
+    if (type === "task_complete" || type === "turn_complete" || type === "turn_completed" || type === "turn_aborted") {
+      return null;
+    }
+    if (event.type === "session_meta") {
+      task.workspace = payload.cwd || task.workspace;
+    } else if (type === "message" && payload.role === "user") {
+      task.task = shortTaskTitle(extractMessageText(payload), task.task);
+      task.mode = "thinking";
+      task.phase = "思考中";
+      task.detail = "正在分析任务";
+      task.progress = Math.max(task.progress, 12);
+    } else if (type === "user_message") {
+      task.task = shortTaskTitle(payload.message, task.task);
+      task.mode = "thinking";
+      task.phase = "思考中";
+      task.detail = "正在分析任务";
+      task.progress = Math.max(task.progress, 12);
+    } else if (type === "agent_reasoning") {
+      task.mode = "thinking";
+      task.phase = "思考中";
+      task.detail = "正在分析与规划";
+      task.progress = Math.min(88, Math.max(task.progress + 1, 16));
+    } else if (type === "custom_tool_call" || type === "function_call") {
+      const waiting = /wait/i.test(payload.name || "");
+      task.mode = waiting ? "waiting" : "working";
+      task.phase = waiting ? "等待中" : "执行中";
+      task.detail = labelForTool(payload.name);
+      task.progress = Math.min(92, Math.max(task.progress + 3, 24));
+    } else if (type === "custom_tool_call_output" || type === "function_call_output") {
+      const output = String(payload.output || "");
+      const failed = /Exit code:\s*[1-9]|failed|error/i.test(output);
+      task.mode = failed ? "error" : "working";
+      task.phase = failed ? "调整中" : "执行中";
+      task.detail = failed ? "遇到问题，正在尝试其他方法" : "正在整理工具结果";
+      task.progress = Math.min(94, Math.max(task.progress + 1, 28));
+    }
+  }
+
+  return task;
+}
+
 class CodexMonitor extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -101,9 +172,11 @@ class CodexMonitor extends EventEmitter {
     this.rescanTimer = null;
     this.db = null;
     this.lastCompletionCheck = 0;
+    this.taskCache = new Map();
+    this.runningTasks = [];
     this.state = {
       connection: "searching",
-      mode: "resting",
+      mode: "offline",
       phase: "等待 Codex",
       detail: "正在寻找本地任务",
       task: "等待下一项任务",
@@ -115,6 +188,7 @@ class CodexMonitor extends EventEmitter {
       workspace: "",
       source: "本地会话日志",
       events: [],
+      tasks: [],
     };
   }
 
@@ -143,7 +217,13 @@ class CodexMonitor extends EventEmitter {
     const elapsedSeconds = this.state.startedAt
       ? Math.max(0, Math.floor((Date.now() - this.state.startedAt) / 1000))
       : 0;
-    return { ...this.state, elapsedSeconds };
+    const tasks = (this.state.tasks || []).map((task) => ({
+      ...task,
+      elapsedSeconds: task.startedAt
+        ? Math.max(0, Math.floor((Date.now() - task.startedAt) / 1000))
+        : 0,
+    }));
+    return { ...this.state, elapsedSeconds, tasks };
   }
 
   openLogsDatabase() {
@@ -203,18 +283,62 @@ class CodexMonitor extends EventEmitter {
     if (!candidates.length) {
       this.update({
         connection: "missing",
-        mode: "resting",
+        mode: "offline",
         phase: "未找到 Codex",
         detail: `未发现 ${this.sessionsRoot}`,
       });
       return;
     }
+    const runningTasks = this.scanRunningTasks(candidates);
     const ranked = candidates
       .map((file) => ({ ...file, eventTime: this.lastEventTimestamp(file) }))
       .sort((a, b) => b.eventTime - a.eventTime);
-    const newest = ranked[0];
+    const newest = runningTasks.length
+      ? ranked.find((file) => file.path === runningTasks[0].filePath) || ranked[0]
+      : ranked[0];
     if (!force && newest.path === this.activeFile) return;
     this.followFile(newest.path, newest.size);
+  }
+
+  scanRunningTasks(candidates) {
+    const now = Date.now();
+    const tasks = [];
+    const livePaths = new Set(candidates.map((file) => file.path));
+
+    for (const file of candidates) {
+      let cached = this.taskCache.get(file.path);
+      if (!cached || cached.size !== file.size || cached.mtimeMs !== file.mtimeMs) {
+        let summary = null;
+        try {
+          const start = Math.max(0, file.size - MAX_TASK_SCAN_BYTES);
+          const handle = fs.openSync(file.path, "r");
+          const buffer = Buffer.alloc(file.size - start);
+          fs.readSync(handle, buffer, 0, buffer.length, start);
+          fs.closeSync(handle);
+          const metadata = this.readSessionMetadata(file.path);
+          summary = taskSummaryFromEvents(parseJsonLines(buffer.toString("utf8")), {
+            threadId: sessionIdFromPath(file.path),
+            workspace: metadata.cwd || "",
+            mtimeMs: file.mtimeMs,
+          });
+        } catch {}
+        cached = { size: file.size, mtimeMs: file.mtimeMs, summary };
+        this.taskCache.set(file.path, cached);
+      }
+
+      if (cached.summary && now - cached.summary.lastEventAt <= RUNNING_TASK_STALE_MS) {
+        tasks.push({ ...cached.summary, filePath: file.path });
+      }
+    }
+
+    for (const filePath of this.taskCache.keys()) {
+      if (!livePaths.has(filePath)) this.taskCache.delete(filePath);
+    }
+
+    tasks.sort((a, b) => b.lastEventAt - a.lastEventAt);
+    this.runningTasks = tasks;
+    this.state.tasks = tasks.map(({ filePath: _filePath, ...task }) => task);
+    return tasks;
   }
 
   followFile(filePath, size) {
@@ -317,6 +441,12 @@ class CodexMonitor extends EventEmitter {
       patch.phase = "思考中";
       patch.detail = "正在分析任务";
       patch.progress = Math.max(this.state.progress, 12);
+    } else if (type === "user_message") {
+      patch.task = shortTaskTitle(payload.message, this.state.task);
+      patch.mode = "thinking";
+      patch.phase = "思考中";
+      patch.detail = "正在分析任务";
+      patch.progress = Math.max(this.state.progress, 12);
     } else if (type === "agent_reasoning") {
       patch.mode = "thinking";
       patch.phase = "思考中";
@@ -324,15 +454,16 @@ class CodexMonitor extends EventEmitter {
       patch.progress = Math.min(88, Math.max(this.state.progress + 1, 16));
     } else if (type === "custom_tool_call" || type === "function_call") {
       const waiting = /wait/i.test(payload.name || "");
-      patch.mode = waiting ? "thinking" : "working";
+      patch.mode = waiting ? "waiting" : "working";
       patch.phase = waiting ? "等待中" : "执行中";
       patch.detail = labelForTool(payload.name);
       patch.progress = Math.min(92, Math.max(this.state.progress + 3, 24));
     } else if (type === "custom_tool_call_output" || type === "function_call_output") {
       const output = String(payload.output || "");
-      patch.mode = "working";
-      patch.phase = /Exit code:\s*[1-9]|failed|error/i.test(output) ? "调整中" : "执行中";
-      patch.detail = /Exit code:\s*[1-9]|failed|error/i.test(output)
+      const failed = /Exit code:\s*[1-9]|failed|error/i.test(output);
+      patch.mode = failed ? "error" : "working";
+      patch.phase = failed ? "调整中" : "执行中";
+      patch.detail = failed
         ? "遇到问题，正在尝试其他方法"
         : "正在整理工具结果";
       patch.progress = Math.min(94, Math.max(this.state.progress + 1, 28));
@@ -341,6 +472,7 @@ class CodexMonitor extends EventEmitter {
       patch.phase = "已完成";
       patch.detail = "任务已经完成";
       patch.progress = 100;
+      this.state.tasks = (this.state.tasks || []).filter((task) => task.id !== this.state.threadId);
     }
 
     if (summary && type !== "token_count") this.pushEvent(summary, eventTime);
@@ -368,6 +500,7 @@ class CodexMonitor extends EventEmitter {
       if (complete) {
         const completedAt = Number(complete.ts) * 1000;
         this.pushEvent("任务已完成", completedAt);
+        this.state.tasks = (this.state.tasks || []).filter((task) => task.id !== this.state.threadId);
         this.update({
           mode: "done",
           phase: "已完成",
@@ -403,4 +536,5 @@ module.exports = {
   parseJsonLines,
   shortTaskTitle,
   stripInjectedContext,
+  taskSummaryFromEvents,
 };

@@ -6,6 +6,7 @@ const {
   parseJsonLines,
   shortTaskTitle,
   stripInjectedContext,
+  taskSummaryFromEvents,
 } = require("../codex-monitor.cjs");
 
 test("strips ambient browser context from task titles", () => {
@@ -27,4 +28,31 @@ test("parses complete JSONL lines and ignores partial lines", () => {
   const events = parseJsonLines(input);
   assert.equal(events.length, 1);
   assert.equal(eventSummary(events[0]), "收到新任务");
+});
+
+test("summarizes a running task from the latest turn", () => {
+  const events = [
+    { timestamp: "2026-07-21T03:00:00.000Z", payload: { type: "task_started" } },
+    {
+      timestamp: "2026-07-21T03:00:01.000Z",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: "增强任务动效" }] },
+    },
+    {
+      timestamp: "2026-07-21T03:00:02.000Z",
+      payload: { type: "custom_tool_call", name: "wait" },
+    },
+  ];
+  const task = taskSummaryFromEvents(events, { threadId: "thread-1", workspace: "C:\\work" });
+  assert.equal(task.id, "thread-1");
+  assert.equal(task.task, "增强任务动效");
+  assert.equal(task.mode, "waiting");
+  assert.equal(task.phase, "等待中");
+});
+
+test("excludes completed and aborted turns from running tasks", () => {
+  const start = { timestamp: "2026-07-21T03:00:00.000Z", payload: { type: "task_started" } };
+  const completed = { timestamp: "2026-07-21T03:00:02.000Z", payload: { type: "task_complete" } };
+  const aborted = { timestamp: "2026-07-21T03:00:02.000Z", payload: { type: "turn_aborted" } };
+  assert.equal(taskSummaryFromEvents([start, completed]), null);
+  assert.equal(taskSummaryFromEvents([start, aborted]), null);
 });
