@@ -107,6 +107,44 @@ function eventType(event) {
   return event?.payload?.type || event?.type || "";
 }
 
+function quotaFromRateLimits(rateLimits) {
+  if (!rateLimits || typeof rateLimits !== "object") return null;
+  const windows = [
+    ["primary", rateLimits.primary],
+    ["secondary", rateLimits.secondary],
+  ]
+    .filter(([, value]) => value && Number.isFinite(Number(value.used_percent)))
+    .map(([kind, value]) => {
+      const usedPercent = Math.max(0, Math.min(100, Number(value.used_percent)));
+      return {
+        kind,
+        usedPercent,
+        remainingPercent: Math.max(0, 100 - usedPercent),
+        windowMinutes: Math.max(0, Number(value.window_minutes) || 0),
+        resetsAt: Math.max(0, Number(value.resets_at) || 0),
+      };
+    });
+  const unlimited = Boolean(rateLimits.credits?.unlimited);
+  if (!windows.length && !unlimited) return null;
+  const current = windows.sort((a, b) => a.remainingPercent - b.remainingPercent)[0] || {
+    kind: "credits",
+    usedPercent: 0,
+    remainingPercent: 100,
+    windowMinutes: 0,
+    resetsAt: 0,
+  };
+  return {
+    available: true,
+    ...current,
+    unlimited,
+    limitId: String(rateLimits.limit_id || "codex"),
+    limitName: String(rateLimits.limit_name || "Codex"),
+    planType: String(rateLimits.plan_type || ""),
+    creditsBalance: rateLimits.credits?.balance ?? null,
+    windows,
+  };
+}
+
 function taskSummaryFromEvents(events, options = {}) {
   const lastStart = events.map(eventType).lastIndexOf("task_started");
   if (lastStart < 0) return null;
@@ -256,6 +294,7 @@ class CodexMonitor extends EventEmitter {
       events: [],
       tasks: [],
       thinkingStep: 0,
+      quota: null,
     };
   }
 
@@ -430,6 +469,7 @@ class CodexMonitor extends EventEmitter {
       workspace: metadata.cwd || this.state.workspace,
       events: [],
       progress: 0,
+      quota: null,
     };
     this.readAppended(true);
   }
@@ -549,6 +589,9 @@ class CodexMonitor extends EventEmitter {
         ? "遇到问题，正在尝试其他方法"
         : "正在整理工具结果";
       patch.progress = Math.min(94, Math.max(this.state.progress + 1, 28));
+    } else if (type === "token_count") {
+      const quota = quotaFromRateLimits(payload.rate_limits);
+      if (quota) patch.quota = quota;
     } else if (type === "task_complete" || type === "turn_complete" || type === "turn_completed") {
       patch.mode = "done";
       patch.phase = "已完成";
@@ -617,6 +660,7 @@ module.exports = {
   extractMessageText,
   labelForTool,
   parseJsonLines,
+  quotaFromRateLimits,
   shortTaskTitle,
   stripInjectedContext,
   taskSummaryFromEvents,

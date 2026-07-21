@@ -8,6 +8,7 @@ const {
   eventSummary,
   labelForTool,
   parseJsonLines,
+  quotaFromRateLimits,
   shortTaskTitle,
   stripInjectedContext,
   taskSummaryFromEvents,
@@ -66,6 +67,22 @@ test("exposes rotating high-level thinking stages", () => {
   assert.equal(thinkingStage(0), "正在理解上下文");
   assert.equal(thinkingStage(3), "正在规划下一步");
   assert.equal(thinkingStage(4), "正在理解上下文");
+});
+
+test("uses the most constrained real Codex quota window", () => {
+  const quota = quotaFromRateLimits({
+    limit_id: "codex",
+    plan_type: "pro",
+    primary: { used_percent: 28, window_minutes: 10080, resets_at: 1785203040 },
+    secondary: { used_percent: 65, window_minutes: 300, resets_at: 1784620000 },
+    credits: { has_credits: false, unlimited: false, balance: "0" },
+  });
+
+  assert.equal(quota.available, true);
+  assert.equal(quota.kind, "secondary");
+  assert.equal(quota.remainingPercent, 35);
+  assert.equal(quota.windowMinutes, 300);
+  assert.equal(quota.limitName, "Codex");
 });
 
 test("lists every running session even when a task start is deep in a large log", (context) => {

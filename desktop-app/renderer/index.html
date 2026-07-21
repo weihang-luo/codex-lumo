@@ -71,7 +71,7 @@
           <span class="progress-rail" aria-hidden="true"><i></i></span>
         </div>
 
-        <div class="system-strip" aria-label="电脑状态">
+        <div class="system-strip" aria-label="系统状态与 Codex 额度">
           <div class="compact-metric" title="CPU 使用率">
             <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1"/><path d="M6 1v3m4-3v3M6 12v3m4-3v3M1 6h3m-3 4h3m8-4h3m-3 4h3"/></svg>
             <span><b id="cpuValue">0</b><i>%</i></span>
@@ -79,6 +79,10 @@
           <div class="compact-metric" title="内存使用率">
             <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7h6M5 9h4M4 2v2m3-2v2m3-2v2m2-2v2M4 12v2m3-2v2m3-2v2m2-2v2"/></svg>
             <span><b id="memoryValue">0</b><i>%</i></span>
+          </div>
+          <div class="compact-metric quota-metric" id="quotaMetric" title="正在读取 Codex 额度">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12a6 6 0 0 1 12 0M8 9l3-3M3 12h10"/><circle cx="8" cy="12" r="1"/></svg>
+            <span><b id="quotaValue">--</b><i id="quotaUnit"></i></span>
           </div>
         </div>
 
@@ -97,6 +101,7 @@
           <div class="system-cards">
             <div class="system-card cpu-card"><span>CPU</span><strong><b id="cpuDetail">0</b>%</strong><i><em id="cpuBar"></em></i></div>
             <div class="system-card memory-card"><span>MEMORY</span><strong><b id="memoryDetail">0</b>%</strong><i><em id="memoryBar"></em></i></div>
+            <div class="system-card quota-card" id="quotaCard"><span id="quotaLabel">QUOTA LEFT</span><strong><b id="quotaDetail">--</b><i id="quotaDetailUnit"></i></strong><i><em id="quotaBar"></em></i></div>
           </div>
         </section>
 

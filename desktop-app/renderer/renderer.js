@@ -73,10 +73,18 @@ const elements = {
   events: document.getElementById("events"),
   cpuValue: document.getElementById("cpuValue"),
   memoryValue: document.getElementById("memoryValue"),
+  quotaMetric: document.getElementById("quotaMetric"),
+  quotaValue: document.getElementById("quotaValue"),
+  quotaUnit: document.getElementById("quotaUnit"),
   cpuDetail: document.getElementById("cpuDetail"),
   memoryDetail: document.getElementById("memoryDetail"),
+  quotaCard: document.getElementById("quotaCard"),
+  quotaLabel: document.getElementById("quotaLabel"),
+  quotaDetail: document.getElementById("quotaDetail"),
+  quotaDetailUnit: document.getElementById("quotaDetailUnit"),
   cpuBar: document.getElementById("cpuBar"),
   memoryBar: document.getElementById("memoryBar"),
+  quotaBar: document.getElementById("quotaBar"),
   systemUpdated: document.getElementById("systemUpdated"),
 };
 
@@ -102,6 +110,53 @@ function eventTime(timestamp) {
   if (seconds < 4) return "NOW";
   if (seconds < 60) return `${seconds}S`;
   return `${Math.floor(seconds / 60)}M`;
+}
+
+function quotaWindowLabel(minutes = 0) {
+  const value = Math.max(0, Number(minutes) || 0);
+  if (value === 10080) return "WEEK";
+  if (value >= 1440) return `${Math.round(value / 1440)}D`;
+  if (value >= 60) return `${Math.round(value / 60)}H`;
+  return value ? `${Math.round(value)}M` : "QUOTA";
+}
+
+function quotaResetLabel(resetsAt = 0) {
+  const numeric = Number(resetsAt) || 0;
+  if (!numeric) return "";
+  const timestamp = numeric < 1e12 ? numeric * 1000 : numeric;
+  const remaining = Math.max(0, timestamp - Date.now());
+  if (remaining >= 86400000) return `${Math.ceil(remaining / 86400000)}D`;
+  if (remaining >= 3600000) return `${Math.ceil(remaining / 3600000)}H`;
+  return `${Math.max(1, Math.ceil(remaining / 60000))}M`;
+}
+
+function renderQuota(quota) {
+  const available = Boolean(quota?.available);
+  const unlimited = available && Boolean(quota.unlimited);
+  const remaining = available ? Math.round(clamp(quota.remainingPercent)) : 0;
+  const value = unlimited ? "∞" : available ? String(remaining) : "--";
+  const unit = available && !unlimited ? "%" : "";
+  const windowLabel = quotaWindowLabel(quota?.windowMinutes);
+  const resetLabel = quotaResetLabel(quota?.resetsAt);
+  const resetTimestamp = Number(quota?.resetsAt) || 0;
+  const resetDate = resetTimestamp
+    ? new Date(resetTimestamp < 1e12 ? resetTimestamp * 1000 : resetTimestamp).toLocaleString("zh-CN")
+    : "";
+  const title = available
+    ? `${quota.limitName || "Codex"}：${unlimited ? "无限额度" : `剩余 ${remaining}%`}${resetDate ? ` · ${resetDate} 重置` : ""}`
+    : "暂未从 Codex 日志读取到额度";
+
+  elements.quotaValue.textContent = value;
+  elements.quotaUnit.textContent = unit;
+  elements.quotaDetail.textContent = value;
+  elements.quotaDetailUnit.textContent = unit;
+  elements.quotaLabel.textContent = available
+    ? `${windowLabel} LEFT${resetLabel ? ` · ${resetLabel}` : ""}`
+    : "QUOTA LEFT";
+  elements.quotaBar.style.width = `${unlimited ? 100 : remaining}%`;
+  elements.quotaMetric.title = title;
+  elements.quotaCard.title = title;
+  island.dataset.quota = !available ? "unknown" : remaining <= 20 ? "low" : "normal";
 }
 
 function renderEvents(events = []) {
@@ -268,6 +323,7 @@ function render(state) {
   elements.taskTitle.title = state.task || "";
   elements.elapsed.textContent = formatTime(state.elapsedSeconds);
   elements.workspace.textContent = compactPath(state.workspace);
+  renderQuota(state.quota);
   animateStateChange(mode, progress);
   renderTasks(state);
   renderEvents(state.events);
