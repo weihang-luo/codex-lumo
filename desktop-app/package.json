@@ -1,6 +1,6 @@
 {
   "name": "codex-lumo-desktop",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Codex Lumo Windows floating task companion",
   "main": "main.cjs",
   "author": "Codex Lumo",
@@ -28,6 +28,7 @@
       "main.cjs",
       "preload.cjs",
       "codex-monitor.cjs",
+      "reveal-policy.cjs",
       "system-monitor.cjs",
       "window-config.cjs",
       "assets/**/*",

@@ -4,6 +4,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { CodexMonitor } = require("./codex-monitor.cjs");
 const { SystemMonitor } = require("./system-monitor.cjs");
+const { ProgressRevealPolicy } = require("./reveal-policy.cjs");
 const {
   DEFAULT_REVEAL_MS,
   DEFAULT_WINDOW_SIZE,
@@ -45,7 +46,7 @@ let windowExpanded = false;
 let windowView = "tasks";
 let internalMove = false;
 let revealUntil = 0;
-let lastStateSignal = "";
+const progressRevealPolicy = new ProgressRevealPolicy();
 let dragSession = null;
 
 function settingsPath() {
@@ -566,14 +567,9 @@ if (!gotLock) {
     monitor.on("state", (state) => {
       latestState = state;
       mainWindow?.webContents.send("lumo:state", state);
-      const tasksSignal = (state.tasks || [])
-        .map((task) => [task.id, task.mode, task.phase, task.detail, task.task].join("~"))
-        .join(";");
-      const stateSignal = [state.mode, state.phase, state.detail, state.task, tasksSignal].join("|");
-      if (lastStateSignal && stateSignal !== lastStateSignal && dockedTop && settings.updateRevealMs > 0) {
+      if (progressRevealPolicy.shouldReveal(state) && dockedTop && settings.updateRevealMs > 0) {
         revealTop(settings.updateRevealMs);
       }
-      lastStateSignal = stateSignal;
       rebuildTrayMenu();
     });
     monitor.start();
