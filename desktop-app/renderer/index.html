@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codex Lumo</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <section class="island" id="island" data-mode="resting" data-expanded="false">
+      <header class="primary drag-region">
+        <div class="pet-wrap" aria-hidden="true">
+          <div class="pet">
+            <i class="ear ear-left"></i>
+            <i class="ear ear-right"></i>
+            <span class="body">
+              <span class="face"><i></i><i></i><b></b></span>
+              <span class="core"></span>
+            </span>
+          </div>
+        </div>
+
+        <button class="summary no-drag" id="expandButton" aria-expanded="false">
+          <span class="eyebrow"><i class="status-dot"></i><b id="connection">LOCAL CODEX</b></span>
+          <strong id="phase">等待 Codex</strong>
+          <span id="detail">正在寻找本地任务</span>
+        </button>
+
+        <div class="telemetry">
+          <span class="bars"><i></i><i></i><i></i><i></i></span>
+          <time id="elapsed">00:00</time>
+        </div>
+
+        <button class="progress no-drag" id="progressButton" aria-label="展开任务详情">
+          <span id="progress">0</span>
+        </button>
+
+        <div class="window-actions no-drag">
+          <button id="passButton" title="鼠标穿透">◇</button>
+          <button id="hideButton" title="隐藏到托盘">—</button>
+        </div>
+      </header>
+
+      <div class="details">
+        <div class="task-card">
+          <div class="task-head">
+            <div>
+              <span class="micro">CURRENT TASK</span>
+              <h1 id="task">等待下一项任务</h1>
+            </div>
+            <span class="live-badge"><i></i>只读监听</span>
+          </div>
+
+          <div class="track"><span id="track"></span></div>
+
+          <div class="stats">
+            <div><span>状态</span><strong id="statPhase">待机</strong></div>
+            <div><span>任务进度</span><strong id="statProgress">0%</strong></div>
+            <div><span>专注时长</span><strong id="statElapsed">00:00</strong></div>
+          </div>
+        </div>
+
+        <div class="event-panel">
+          <div class="event-head">
+            <span class="micro">LIVE EVENTS</span>
+            <span id="workspace">CODEX HOME</span>
+          </div>
+          <ol id="events"><li><i></i><span>等待 Codex 事件</span><time>NOW</time></li></ol>
+        </div>
+
+        <footer>
+          <button class="text-button no-drag" id="logsButton">打开日志目录</button>
+          <span>拖动移动 · Ctrl Alt L 显示/隐藏</span>
+          <button class="text-button danger no-drag" id="quitButton">退出</button>
+        </footer>
+      </div>
+    </section>
+    <script src="renderer.js"></script>
+  </body>
+</html>

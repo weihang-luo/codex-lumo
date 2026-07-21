@@ -2,6 +2,8 @@
 
 # dependencies
 /node_modules
+/desktop-app/node_modules/
+/desktop-app/release/
 /.pnp
 .pnp.*
 .yarn/*
@@ -29,6 +31,8 @@ yarn-error.log*
 .pnpm-debug.log*
 .devserver.log
 .devserver.err.log
+.electron.log
+.electron.err.log
 
 # env files (can opt-in for committing if needed)
 .env*

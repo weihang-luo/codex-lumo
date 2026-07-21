@@ -1,0 +1,53 @@
+{
+  "name": "codex-lumo-desktop",
+  "version": "1.0.0",
+  "description": "Codex Lumo Windows floating task companion",
+  "main": "main.cjs",
+  "author": "Codex Lumo",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.cjs",
+    "pack": "electron-builder --win portable",
+    "dist": "electron-builder --win nsis portable"
+  },
+  "devDependencies": {
+    "electron": "latest",
+    "electron-builder": "latest"
+  },
+  "build": {
+    "appId": "com.codexlumo.companion",
+    "productName": "Codex Lumo",
+    "asar": true,
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "codex-monitor.cjs",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "artifactName": "Codex-Lumo-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Codex Lumo"
+    },
+    "portable": {
+      "artifactName": "Codex-Lumo-Portable-${version}-${arch}.${ext}"
+    }
+  }
+}
