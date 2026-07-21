@@ -323,8 +323,9 @@ function render(state) {
   elements.phase.textContent = state.phase || "等待 Codex";
   elements.detail.textContent = state.detail || "正在寻找本地任务";
   elements.detail.title = state.detail || "";
-  elements.taskTitle.textContent = state.task || "等待下一项任务";
-  elements.taskTitle.title = state.task || "";
+  const latestContext = state.latestReply || state.task || "等待下一项任务";
+  elements.taskTitle.textContent = latestContext;
+  elements.taskTitle.title = latestContext;
   elements.elapsed.textContent = formatTime(state.elapsedSeconds);
   elements.workspace.textContent = compactPath(state.workspace);
   renderQuota(state.quota);
