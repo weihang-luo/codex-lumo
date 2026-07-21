@@ -168,7 +168,7 @@ button { font: inherit; }
   z-index: 2;
   height: 66px;
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 126px 42px;
+  grid-template-columns: 56px minmax(0, 1fr) 108px 36px;
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
@@ -271,13 +271,24 @@ button { font: inherit; }
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 7px;
+  gap: 4px;
   color: var(--muted);
   font: 600 9px/1 "Segoe UI Variable", "Segoe UI", sans-serif;
   letter-spacing: 0.035em;
 }
 
 .eyebrow > span:first-child { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+
+.compact-workspace {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: #747985;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .status-dot {
   width: 4px;

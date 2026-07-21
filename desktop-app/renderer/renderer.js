@@ -74,6 +74,7 @@ const elements = {
   taskCount: document.getElementById("taskCount"),
   taskList: document.getElementById("taskList"),
   workspace: document.getElementById("workspace"),
+  compactWorkspace: document.getElementById("compactWorkspace"),
   events: document.getElementById("events"),
   cpuValue: document.getElementById("cpuValue"),
   memoryValue: document.getElementById("memoryValue"),
@@ -327,7 +328,10 @@ function render(state) {
   elements.taskTitle.textContent = latestContext;
   elements.taskTitle.title = latestContext;
   elements.elapsed.textContent = formatTime(state.elapsedSeconds);
-  elements.workspace.textContent = compactPath(state.workspace);
+  const workspaceLabel = compactPath(state.workspace);
+  elements.workspace.textContent = workspaceLabel;
+  elements.compactWorkspace.textContent = workspaceLabel;
+  elements.compactWorkspace.title = state.workspace || "";
   renderQuota(state.quota);
   animateStateChange(mode, progress);
   renderTasks(state);
