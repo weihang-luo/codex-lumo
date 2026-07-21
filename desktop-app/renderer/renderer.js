@@ -1,5 +1,4 @@
 const island = document.getElementById("island");
-const expandButton = document.getElementById("expandButton");
 const progressButton = document.getElementById("progressButton");
 const hideButton = document.getElementById("hideButton");
 const passButton = document.getElementById("passButton");
@@ -12,6 +11,12 @@ let lastMode = "";
 let lastProgress = -1;
 let lastTaskSignature = "";
 let renderedTaskCount = 1;
+let statePulseTimer = null;
+let progressPulseTimer = null;
+let boredTimer = null;
+let boredClearTimer = null;
+
+const BORED_MOVES = ["look", "wave", "stretch", "dance"];
 
 const elements = {
   connection: document.getElementById("connection"),
@@ -87,7 +92,7 @@ function renderTasks(state) {
   elements.taskCount.textContent = String(tasks.length);
 
   if (expanded && nextCount !== renderedTaskCount) {
-    window.lumo.resize(true, nextCount);
+    window.lumo.resize(true, nextCount, "tasks");
   }
   renderedTaskCount = nextCount;
   if (signature === lastTaskSignature) return;
@@ -145,16 +150,40 @@ function renderTasks(state) {
   });
 }
 
+function scheduleBoredMove(mode) {
+  clearTimeout(boredTimer);
+  clearTimeout(boredClearTimer);
+  delete island.dataset.bored;
+  if (mode !== "resting") return;
+
+  const delay = 3200 + Math.floor(Math.random() * 6200);
+  boredTimer = setTimeout(() => {
+    const move = BORED_MOVES[Math.floor(Math.random() * BORED_MOVES.length)];
+    island.dataset.bored = move;
+    boredClearTimer = setTimeout(() => {
+      delete island.dataset.bored;
+      scheduleBoredMove(mode);
+    }, 1500 + Math.floor(Math.random() * 700));
+  }, delay);
+}
+
 function animateStateChange(mode, progress) {
+  if (mode !== lastMode) {
+    scheduleBoredMove(mode);
+  }
   if (lastMode && mode !== lastMode) {
+    clearTimeout(statePulseTimer);
     island.classList.remove("state-pulse");
     void island.offsetWidth;
     island.classList.add("state-pulse");
+    statePulseTimer = setTimeout(() => island.classList.remove("state-pulse"), 680);
   }
   if (lastProgress >= 0 && progress !== lastProgress) {
+    clearTimeout(progressPulseTimer);
     progressButton.classList.remove("progress-pulse");
     void progressButton.offsetWidth;
     progressButton.classList.add("progress-pulse");
+    progressPulseTimer = setTimeout(() => progressButton.classList.remove("progress-pulse"), 480);
   }
   lastMode = mode;
   lastProgress = progress;
@@ -187,12 +216,10 @@ function render(state) {
 async function setExpanded(value) {
   expanded = Boolean(value);
   island.dataset.expanded = String(expanded);
-  expandButton.setAttribute("aria-expanded", String(expanded));
   progressButton.setAttribute("aria-label", expanded ? "收起任务详情" : "展开任务详情");
-  await window.lumo.resize(expanded, renderedTaskCount);
+  await window.lumo.resize(expanded, renderedTaskCount, "tasks");
 }
 
-expandButton.addEventListener("click", () => setExpanded(!expanded));
 progressButton.addEventListener("click", () => setExpanded(!expanded));
 hideButton.addEventListener("click", () => window.lumo.hide());
 passButton.addEventListener("click", () => window.lumo.toggleClickThrough());
@@ -209,10 +236,19 @@ window.lumo.onClickThrough((enabled) => {
   passButton.textContent = enabled ? "◆" : "◇";
   passButton.title = enabled ? "关闭鼠标穿透（Ctrl Alt L 召回）" : "开启鼠标穿透";
 });
+window.lumo.onSettings((settings) => {
+  document.body.dataset.windowSize = settings.windowSize || "medium";
+});
+window.lumo.onDockMotion((phase) => {
+  island.dataset.dockMotion = phase || "visible";
+});
 
 document.body.addEventListener("mouseenter", () => window.lumo.setHovered(true));
 document.body.addEventListener("mouseleave", () => window.lumo.setHovered(false));
 
+window.lumo.getSettings().then((settings) => {
+  document.body.dataset.windowSize = settings.windowSize || "medium";
+});
 window.lumo.getState().then(render);
 setInterval(() => {
   if (!latestState) return;

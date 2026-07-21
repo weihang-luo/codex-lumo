@@ -28,10 +28,13 @@
       "main.cjs",
       "preload.cjs",
       "codex-monitor.cjs",
+      "window-config.cjs",
+      "assets/**/*",
       "renderer/**/*",
       "package.json"
     ],
     "win": {
+      "icon": "assets/lumo.ico",
       "target": [
         "nsis",
         "portable"

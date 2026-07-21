@@ -30,6 +30,20 @@ body {
   user-select: none;
 }
 
+body[data-window-size="small"] .island {
+  width: 114.943%;
+  height: 114.943%;
+  transform: scale(0.87);
+  transform-origin: 0 0;
+}
+
+body[data-window-size="large"] .island {
+  width: 86.207%;
+  height: 86.207%;
+  transform: scale(1.16);
+  transform-origin: 0 0;
+}
+
 button { font: inherit; }
 
 .island {
@@ -135,7 +149,16 @@ button { font: inherit; }
 .island[data-mode="resting"] { --status: #6572a8; }
 .island[data-mode="offline"] { --status: #535669; }
 
-.drag-region { -webkit-app-region: drag; }
+.island[data-dock-motion="showing"] .primary {
+  animation: dockContentReveal 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.island[data-dock-motion="hiding"] .primary {
+  animation: dockContentHide 360ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.drag-region,
+.details { -webkit-app-region: drag; }
 .no-drag, button { -webkit-app-region: no-drag; }
 
 .primary {
@@ -169,38 +192,61 @@ button { font: inherit; }
 
 .pixel-pet {
   position: relative;
-  width: 46px;
-  height: 42px;
+  width: 48px;
+  height: 48px;
   image-rendering: pixelated;
-  animation: pixelIdle 1.6s steps(2, end) infinite;
+  transform-origin: 50% 86%;
+  animation: botIdle 2.2s steps(2, end) infinite;
 }
 
-.pixel-body {
+.bot-shadow {
   position: absolute;
-  z-index: 3;
-  top: 11px;
+  z-index: 0;
+  bottom: 0;
   left: 8px;
-  width: 31px;
-  height: 25px;
-  display: block;
-  clip-path: polygon(4px 0, 27px 0, 31px 4px, 31px 21px, 27px 25px, 4px 25px, 0 21px, 0 4px);
-  background: #d8faff;
-  box-shadow: inset -4px -4px 0 #94d6e7, inset 4px 4px 0 #ffffff;
+  width: 32px;
+  height: 3px;
+  background: rgba(0, 229, 255, 0.2);
+  box-shadow: 0 0 7px rgba(0, 229, 255, 0.35);
+}
+
+.pixel-head {
+  position: absolute;
+  z-index: 4;
+  top: 6px;
+  left: 9px;
+  width: 30px;
+  height: 18px;
+  clip-path: polygon(4px 0, 26px 0, 30px 4px, 30px 14px, 26px 18px, 4px 18px, 0 14px, 0 4px);
+  background: #dffcff;
+  box-shadow: inset -3px -3px 0 #7fc7d8, inset 3px 3px 0 #fff;
+  transform-origin: 50% 100%;
+}
+
+.pixel-head::after {
+  content: "";
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 3px;
+  height: 3px;
+  background: var(--magenta);
+  box-shadow: 0 0 5px var(--magenta);
 }
 
 .pixel-face {
   position: absolute;
-  top: 6px;
-  left: 5px;
-  width: 21px;
-  height: 11px;
+  top: 4px;
+  left: 4px;
+  width: 22px;
+  height: 10px;
   background: #080a12;
   box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.22);
 }
 
 .pixel-face i {
   position: absolute;
-  top: 4px;
+  top: 3px;
   width: 3px;
   height: 3px;
   background: var(--status);
@@ -213,17 +259,38 @@ button { font: inherit; }
 
 .pixel-face b {
   position: absolute;
-  bottom: 2px;
-  left: 9px;
+  bottom: 1px;
+  left: 10px;
   width: 3px;
   height: 1px;
   background: #53596a;
 }
 
+.head-light {
+  position: absolute;
+  top: 2px;
+  left: 13px;
+  width: 4px;
+  height: 1px;
+  background: rgba(0, 229, 255, 0.45);
+}
+
+.pixel-torso {
+  position: absolute;
+  z-index: 3;
+  top: 24px;
+  left: 15px;
+  width: 18px;
+  height: 13px;
+  clip-path: polygon(3px 0, 15px 0, 18px 3px, 16px 13px, 2px 13px, 0 3px);
+  background: #a8e7f0;
+  box-shadow: inset -3px -3px 0 #4e94a8, inset 3px 0 0 #e8fdff;
+}
+
 .pixel-core {
   position: absolute;
-  right: 3px;
-  bottom: 3px;
+  top: 4px;
+  left: 7px;
   width: 3px;
   height: 3px;
   background: var(--status);
@@ -231,45 +298,61 @@ button { font: inherit; }
   animation: pixelCore 1.2s steps(2, end) infinite;
 }
 
-.pixel-ear {
+.pixel-arm {
   position: absolute;
   z-index: 2;
-  top: 4px;
-  width: 10px;
+  top: 25px;
+  width: 6px;
   height: 12px;
-  background: #d8faff;
+  background: #76c6d8;
+  transform-origin: 50% 1px;
 }
 
-.pixel-ear::after {
-  content: "";
+.pixel-arm-left { left: 8px; }
+.pixel-arm-right { right: 8px; }
+
+.pixel-arm i {
   position: absolute;
-  top: 3px;
-  width: 3px;
+  bottom: -3px;
+  left: -1px;
+  width: 8px;
   height: 5px;
-  background: var(--magenta);
+  background: #dffcff;
+  box-shadow: inset -2px -2px 0 #69aec0;
 }
 
-.pixel-ear-left {
-  left: 6px;
-  clip-path: polygon(0 0, 7px 3px, 10px 12px, 2px 10px);
+.pixel-leg {
+  position: absolute;
+  z-index: 2;
+  top: 36px;
+  width: 6px;
+  height: 8px;
+  background: #6db7c8;
+  transform-origin: 50% 0;
 }
 
-.pixel-ear-left::after { left: 3px; }
+.pixel-leg-left { left: 15px; }
+.pixel-leg-right { right: 15px; }
 
-.pixel-ear-right {
-  right: 6px;
-  clip-path: polygon(10px 0, 3px 3px, 0 12px, 8px 10px);
+.pixel-leg i {
+  position: absolute;
+  bottom: -3px;
+  width: 9px;
+  height: 4px;
+  background: #dffcff;
+  box-shadow: inset 0 -2px 0 #5598aa;
 }
 
-.pixel-ear-right::after { right: 3px; }
+.pixel-leg-left i { right: 0; }
+.pixel-leg-right i { left: 0; }
 
 .pixel-antenna {
   position: absolute;
   z-index: 4;
-  top: 2px;
-  left: 22px;
+  top: 0;
+  left: 23px;
   width: 2px;
-  height: 8px;
+  height: 7px;
   background: #91cddc;
 }
 
@@ -284,28 +367,6 @@ button { font: inherit; }
   box-shadow: 0 0 6px var(--status);
 }
 
-.pixel-tail {
-  position: absolute;
-  z-index: 1;
-  right: 0;
-  bottom: 6px;
-  width: 13px;
-  height: 14px;
-  transform-origin: left bottom;
-  animation: pixelTail 700ms steps(2, end) infinite;
-}
-
-.pixel-tail i {
-  position: absolute;
-  width: 5px;
-  height: 5px;
-  background: #a9deeb;
-}
-
-.pixel-tail i:first-child { left: 0; bottom: 0; }
-.pixel-tail i:nth-child(2) { left: 4px; bottom: 4px; }
-.pixel-tail i:nth-child(3) { left: 8px; bottom: 8px; background: var(--status); }
-
 .pixel-fx {
   position: absolute;
   z-index: 5;
@@ -315,8 +376,8 @@ button { font: inherit; }
   opacity: 0;
 }
 
-.pixel-fx-one { left: 1px; top: 9px; }
-.pixel-fx-two { right: 1px; top: 3px; background: var(--magenta); }
+.pixel-fx-one { left: 2px; top: 18px; }
+.pixel-fx-two { right: 2px; top: 8px; background: var(--magenta); }
 
 .pixel-sleep {
   position: absolute;
@@ -350,8 +411,10 @@ button { font: inherit; }
   background: transparent;
   color: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: grab;
 }
+
+.summary:active { cursor: grabbing; }
 
 .eyebrow {
   display: flex;
@@ -741,31 +804,49 @@ footer {
 .text-button.danger { color: #6f4a5a; }
 
 /* Pixel-state language */
-.island[data-mode="working"] .pixel-pet { animation: pixelWork 540ms steps(2, end) infinite; }
-.island[data-mode="working"] .pixel-tail { animation-duration: 360ms; }
+.island[data-mode="working"] .pixel-pet { animation: botWork 620ms steps(2, end) infinite; }
+.island[data-mode="working"] .pixel-head { animation: headWork 620ms steps(2, end) infinite; }
+.island[data-mode="working"] .pixel-arm-left { animation: armTypeLeft 360ms steps(2, end) infinite; }
+.island[data-mode="working"] .pixel-arm-right { animation: armTypeRight 360ms steps(2, end) infinite; }
+.island[data-mode="working"] .pixel-leg-left { transform: rotate(5deg); }
+.island[data-mode="working"] .pixel-leg-right { transform: rotate(-5deg); }
 .island[data-mode="working"] .pixel-fx-one { opacity: 1; animation: dataSpark 720ms steps(3, end) infinite; }
 .island[data-mode="working"] .pixel-orbit-one { opacity: 1; animation: orbitWork 900ms steps(5, end) infinite; }
 
-.island[data-mode="thinking"] .pixel-pet { animation: pixelThink 1.8s steps(3, end) infinite; }
+.island[data-mode="thinking"] .pixel-pet { animation: botThink 1.8s steps(3, end) infinite; }
+.island[data-mode="thinking"] .pixel-head { animation: headThink 1.8s steps(3, end) infinite; }
+.island[data-mode="thinking"] .pixel-arm-left { animation: armChin 1.8s steps(3, end) infinite; }
+.island[data-mode="thinking"] .pixel-arm-right { transform: rotate(-12deg); }
 .island[data-mode="thinking"] .pixel-antenna::before { animation: thinkScan 900ms steps(2, end) infinite; }
 .island[data-mode="thinking"] .pixel-fx-two { opacity: 1; animation: thoughtPixel 1.4s steps(3, end) infinite; }
 .island[data-mode="thinking"] .pixel-orbit-two { opacity: 1; animation: orbitThink 1.4s steps(5, end) infinite; }
 
-.island[data-mode="waiting"] .pixel-pet { animation: pixelWait 1.2s steps(2, end) infinite; }
+.island[data-mode="waiting"] .pixel-pet { animation: botWait 1.2s steps(2, end) infinite; }
+.island[data-mode="waiting"] .pixel-head { animation: headLook 1.2s steps(2, end) infinite; }
+.island[data-mode="waiting"] .pixel-leg-right { animation: footTap 480ms steps(2, end) infinite; }
+.island[data-mode="waiting"] .pixel-arm-right { animation: armWait 1.2s steps(2, end) infinite; }
 .island[data-mode="waiting"] .pixel-face i { animation: waitingEyes 900ms steps(2, end) infinite; }
 .island[data-mode="waiting"] .bars i { animation-duration: 1.5s; }
 
-.island[data-mode="done"] .pixel-pet { animation: pixelCelebrate 700ms steps(2, end) 4; }
+.island[data-mode="done"] .pixel-pet { animation: botCelebrate 700ms steps(2, end) 4; }
+.island[data-mode="done"] .pixel-arm-left { animation: armCheerLeft 700ms steps(2, end) 4; }
+.island[data-mode="done"] .pixel-arm-right { animation: armCheerRight 700ms steps(2, end) 4; }
+.island[data-mode="done"] .pixel-leg-left { animation: legKickLeft 700ms steps(2, end) 4; }
+.island[data-mode="done"] .pixel-leg-right { animation: legKickRight 700ms steps(2, end) 4; }
 .island[data-mode="done"] .pixel-fx { opacity: 1; animation: celebrateSpark 850ms steps(3, end) infinite; }
-.island[data-mode="done"] .pixel-face b { width: 7px; height: 2px; left: 7px; background: var(--acid); }
+.island[data-mode="done"] .pixel-face b { width: 8px; height: 2px; left: 7px; background: var(--acid); }
 .island[data-mode="done"] .bars i { animation: none; }
 
-.island[data-mode="error"] .pixel-pet { animation: pixelGlitch 360ms steps(2, end) infinite; }
-.island[data-mode="error"] .pixel-body { box-shadow: inset -4px -4px 0 #d05b84, inset 4px 4px 0 #fff; }
+.island[data-mode="error"] .pixel-pet { animation: botGlitch 360ms steps(2, end) infinite; }
+.island[data-mode="error"] .pixel-head { box-shadow: inset -3px -3px 0 #c04a69, inset 3px 3px 0 #fff; }
+.island[data-mode="error"] .pixel-arm-left { animation: armFlailLeft 360ms steps(2, end) infinite; }
+.island[data-mode="error"] .pixel-arm-right { animation: armFlailRight 360ms steps(2, end) infinite; }
 .island[data-mode="error"] .pixel-fx { opacity: 1; background: var(--danger); animation: errorSpark 420ms steps(2, end) infinite; }
 .island[data-mode="error"] .motion-layer i:first-child { animation-duration: 780ms; opacity: 0.5; }
 
-.island[data-mode="resting"] .pixel-pet { animation: pixelRest 2.6s steps(2, end) infinite; }
+.island[data-mode="resting"] .pixel-pet { animation: botRest 2.8s steps(2, end) infinite; }
+.island[data-mode="resting"] .pixel-arm-left { transform: rotate(8deg); }
+.island[data-mode="resting"] .pixel-arm-right { transform: rotate(-8deg); }
 .island[data-mode="resting"] .pixel-face i { height: 1px; animation: none; box-shadow: none; }
 .island[data-mode="resting"] .pixel-sleep { opacity: 1; animation: sleepPixel 1.8s steps(3, end) infinite; }
 .island[data-mode="resting"] .bars i { animation: none; opacity: 0.28; }
@@ -775,24 +856,65 @@ footer {
 .island[data-mode="offline"] .pixel-core { box-shadow: none; }
 .island[data-mode="offline"] .bars i { animation: none; opacity: 0.18; }
 
+.island[data-bored="look"] .pixel-head { animation: boredLook 1.7s steps(4, end); }
+.island[data-bored="look"] .pixel-face i { height: 3px; animation: boredEyes 1.7s steps(4, end); box-shadow: 0 0 5px var(--status); }
+.island[data-bored="wave"] .pixel-arm-right { animation: boredWave 1.5s steps(5, end); }
+.island[data-bored="wave"] .pixel-face i { height: 3px; box-shadow: 0 0 5px var(--status); }
+.island[data-bored="stretch"] .pixel-arm-left { animation: boredStretchLeft 1.8s steps(4, end); }
+.island[data-bored="stretch"] .pixel-arm-right { animation: boredStretchRight 1.8s steps(4, end); }
+.island[data-bored="stretch"] .pixel-pet { animation: boredStretchBody 1.8s steps(4, end); }
+.island[data-bored="dance"] .pixel-pet { animation: boredDance 1.6s steps(4, end); }
+.island[data-bored="dance"] .pixel-leg-left { animation: boredStepLeft 400ms steps(2, end) 4; }
+.island[data-bored="dance"] .pixel-leg-right { animation: boredStepRight 400ms steps(2, end) 4; }
+.island[data-bored="dance"] .pixel-face i { height: 3px; background: var(--magenta); box-shadow: 0 0 5px var(--magenta); }
+
 .island.state-pulse {
   animation: statePulse 620ms cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+.island.state-pulse .pixel-head { animation: headReact 620ms steps(3, end); }
+.island.state-pulse .pixel-arm-left { animation: reactArmLeft 620ms steps(3, end); }
+.island.state-pulse .pixel-arm-right { animation: reactArmRight 620ms steps(3, end); }
 
 .progress.progress-pulse {
   animation: progressPulse 440ms steps(2, end);
 }
 
-@keyframes pixelIdle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
-@keyframes pixelWork { 0% { transform: translate(0, 0); } 50% { transform: translate(1px, -2px); } 100% { transform: translate(-1px, 0); } }
-@keyframes pixelThink { 0%, 100% { transform: translateY(0); } 33% { transform: translateY(-2px); } 66% { transform: translateY(-4px); } }
-@keyframes pixelWait { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(2px); } }
-@keyframes pixelCelebrate { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-5px) rotate(3deg); } }
-@keyframes pixelGlitch { 0% { transform: translateX(-2px); filter: none; } 50% { transform: translateX(2px); filter: hue-rotate(35deg); } 100% { transform: translateX(0); } }
-@keyframes pixelRest { 0%, 100% { transform: translateY(2px); } 50% { transform: translateY(0); } }
+@keyframes botIdle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+@keyframes botWork { 0% { transform: translate(0, 0); } 50% { transform: translate(1px, -1px); } 100% { transform: translate(-1px, 0); } }
+@keyframes headWork { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(1px); } }
+@keyframes armTypeLeft { 0%, 100% { transform: rotate(28deg) translateY(0); } 50% { transform: rotate(44deg) translateY(2px); } }
+@keyframes armTypeRight { 0%, 100% { transform: rotate(-44deg) translateY(2px); } 50% { transform: rotate(-28deg) translateY(0); } }
+@keyframes botThink { 0%, 100% { transform: translateY(0); } 33% { transform: translateY(-1px); } 66% { transform: translateY(-2px); } }
+@keyframes headThink { 0%, 100% { transform: rotate(0) translateX(0); } 33% { transform: rotate(-6deg) translateX(-1px); } 66% { transform: rotate(5deg) translateX(1px); } }
+@keyframes armChin { 0%, 100% { transform: rotate(38deg) translate(3px, -2px); } 50% { transform: rotate(48deg) translate(4px, -4px); } }
+@keyframes botWait { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(1px); } }
+@keyframes headLook { 0%, 100% { transform: translateX(-1px); } 50% { transform: translateX(2px); } }
+@keyframes footTap { 0%, 100% { transform: rotate(0) translateY(0); } 50% { transform: rotate(-12deg) translateY(-2px); } }
+@keyframes armWait { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(-20deg); } }
+@keyframes botCelebrate { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-6px) rotate(2deg); } }
+@keyframes armCheerLeft { 0%, 100% { transform: rotate(8deg); } 50% { transform: rotate(150deg) translate(-1px, 1px); } }
+@keyframes armCheerRight { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(-150deg) translate(1px, 1px); } }
+@keyframes legKickLeft { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(18deg); } }
+@keyframes legKickRight { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-18deg); } }
+@keyframes botGlitch { 0% { transform: translateX(-2px); filter: none; } 50% { transform: translateX(2px); filter: hue-rotate(35deg); } 100% { transform: translateX(0); } }
+@keyframes armFlailLeft { 0%, 100% { transform: rotate(45deg); } 50% { transform: rotate(-40deg); } }
+@keyframes armFlailRight { 0%, 100% { transform: rotate(-45deg); } 50% { transform: rotate(40deg); } }
+@keyframes botRest { 0%, 100% { transform: translateY(1px); } 50% { transform: translateY(0); } }
 @keyframes pixelBlink { 0%, 46%, 50%, 100% { transform: scaleY(1); } 48% { transform: scaleY(0); } }
 @keyframes pixelCore { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
-@keyframes pixelTail { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(18deg); } }
+@keyframes headReact { 0%, 100% { transform: translateY(0) scale(1); } 35% { transform: translateY(-3px) scale(1.05); } 65% { transform: translateY(1px) scale(0.98); } }
+@keyframes reactArmLeft { 0%, 100% { transform: rotate(8deg); } 40% { transform: rotate(72deg); } }
+@keyframes reactArmRight { 0%, 100% { transform: rotate(-8deg); } 40% { transform: rotate(-72deg); } }
+@keyframes boredLook { 0%, 100% { transform: translateX(0) rotate(0); } 25% { transform: translateX(-3px) rotate(-5deg); } 55% { transform: translateX(3px) rotate(5deg); } 80% { transform: translateX(-1px); } }
+@keyframes boredEyes { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 55% { transform: translateX(2px); } 80% { transform: translateX(0); } }
+@keyframes boredWave { 0%, 100% { transform: rotate(-8deg); } 20% { transform: rotate(-150deg); } 40% { transform: rotate(-120deg); } 60% { transform: rotate(-155deg); } 80% { transform: rotate(-125deg); } }
+@keyframes boredStretchLeft { 0%, 100% { transform: rotate(8deg); } 40%, 65% { transform: rotate(165deg) translateY(-2px); } }
+@keyframes boredStretchRight { 0%, 100% { transform: rotate(-8deg); } 40%, 65% { transform: rotate(-165deg) translateY(-2px); } }
+@keyframes boredStretchBody { 0%, 100% { transform: translateY(1px); } 40%, 65% { transform: translateY(-4px) scaleY(1.04); } }
+@keyframes boredDance { 0%, 100% { transform: translate(0, 1px) rotate(0); } 25% { transform: translate(-2px, -2px) rotate(-4deg); } 50% { transform: translate(0, 0) rotate(0); } 75% { transform: translate(2px, -2px) rotate(4deg); } }
+@keyframes boredStepLeft { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-3px) rotate(10deg); } }
+@keyframes boredStepRight { 0%, 100% { transform: translateY(-3px) rotate(-10deg); } 50% { transform: translateY(0) rotate(0); } }
 @keyframes pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @keyframes bars { from { transform: scaleY(0.35); opacity: 0.4; } to { transform: scaleY(1); opacity: 1; } }
 @keyframes dataSpark { 0% { transform: translate(0, 12px); } 100% { transform: translate(5px, -6px); opacity: 0; } }
@@ -811,6 +933,8 @@ footer {
 @keyframes progressPulse { 0%, 100% { color: var(--status); } 50% { color: #fff; background: color-mix(in srgb, var(--status) 24%, transparent); } }
 @keyframes taskEnter { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes taskSignal { 0%, 100% { transform: scaleY(0.45); opacity: 0.5; } 50% { transform: scaleY(1); opacity: 1; } }
+@keyframes dockContentReveal { from { opacity: 0.15; transform: translateY(-8px) scaleX(0.985); } to { opacity: 1; transform: translateY(0) scaleX(1); } }
+@keyframes dockContentHide { from { opacity: 1; transform: translateY(0); } to { opacity: 0.35; transform: translateY(-5px); } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

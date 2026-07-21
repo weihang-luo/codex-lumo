@@ -16,14 +16,17 @@
       <header class="primary drag-region">
         <div class="pet-wrap" aria-hidden="true">
           <div class="pixel-pet">
+            <span class="bot-shadow"></span>
             <i class="pixel-antenna"></i>
-            <i class="pixel-ear pixel-ear-left"></i>
-            <i class="pixel-ear pixel-ear-right"></i>
-            <span class="pixel-body">
+            <span class="pixel-head">
               <span class="pixel-face"><i></i><i></i><b></b></span>
-              <span class="pixel-core"></span>
+              <span class="head-light"></span>
             </span>
-            <span class="pixel-tail"><i></i><i></i><i></i></span>
+            <span class="pixel-torso"><span class="pixel-core"></span></span>
+            <span class="pixel-arm pixel-arm-left"><i></i></span>
+            <span class="pixel-arm pixel-arm-right"><i></i></span>
+            <span class="pixel-leg pixel-leg-left"><i></i></span>
+            <span class="pixel-leg pixel-leg-right"><i></i></span>
             <span class="pixel-fx pixel-fx-one"></span>
             <span class="pixel-fx pixel-fx-two"></span>
             <span class="pixel-orbit pixel-orbit-one"></span>
@@ -32,11 +35,11 @@
           </div>
         </div>
 
-        <button class="summary no-drag" id="expandButton" aria-expanded="false">
+        <div class="summary" id="summary" aria-live="polite">
           <span class="eyebrow"><i class="status-dot"></i><b id="connection">LOCAL CODEX</b></span>
           <strong id="phase">等待 Codex</strong>
           <span id="detail">正在寻找本地任务</span>
-        </button>
+        </div>
 
         <div class="telemetry">
           <span class="bars"><i></i><i></i><i></i><i></i></span>
