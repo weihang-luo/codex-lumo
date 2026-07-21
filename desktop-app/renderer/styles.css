@@ -50,8 +50,9 @@ body[data-window-size="small"] .primary {
 body[data-window-size="small"] .primary::after { right: 6px; left: 56px; }
 body[data-window-size="small"] .pet-wrap,
 body[data-window-size="small"] .kawaii-bot { width: 52px; height: 54px; }
-body[data-window-size="small"] .task-name { display: none; }
-body[data-window-size="small"] .summary { gap: 4px; }
+body[data-window-size="small"] .summary { gap: 1px; }
+body[data-window-size="small"] .work-name { max-width: 46%; }
+body[data-window-size="small"] .task-context { font-size: 9px; }
 body[data-window-size="small"] .system-strip { height: 46px; }
 body[data-window-size="small"] .activity-core { width: 32px; }
 body[data-window-size="small"] .details { height: calc(100% - 58px); }
@@ -264,13 +265,13 @@ button { font: inherit; }
   text-shadow: none;
 }
 
-.summary { min-width: 0; display: grid; gap: 3px; }
+.summary { min-width: 0; display: grid; gap: 2px; }
 
 .eyebrow {
   min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 7px;
   color: var(--muted);
   font: 600 9px/1 "Segoe UI Variable", "Segoe UI", sans-serif;
@@ -289,15 +290,16 @@ button { font: inherit; }
 }
 
 .task-name {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  color: #777b86;
+  color: #9296a1;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
-.status-line { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
+.status-line { min-width: 0; display: flex; align-items: baseline; }
 
 .status-line strong {
   flex: 0 0 auto;
@@ -309,15 +311,28 @@ button { font: inherit; }
   text-shadow: none;
 }
 
-.status-line span {
+.task-context {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #9296a1;
+  font-size: 10px;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.work-name {
+  flex: 0 0 auto;
+  max-width: 48%;
   overflow: hidden;
-  color: #b8bbc4;
-  font-size: 11px;
-  line-height: 1.15;
+  color: #b7c9f2;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.task-context > i { color: #646975; font-style: normal; }
 
 .progress-rail {
   position: relative;
