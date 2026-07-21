@@ -14,6 +14,17 @@ const MAX_EVENT_HISTORY = 5;
 const MAX_RECONSTRUCT_BYTES = 2 * 1024 * 1024;
 const MAX_TASK_SCAN_BYTES = 4 * 1024 * 1024;
 const RUNNING_TASK_STALE_MS = 12 * 60 * 60 * 1000;
+const THINKING_STAGES = Object.freeze([
+  "正在理解上下文",
+  "正在拆解任务",
+  "正在评估实现路径",
+  "正在规划下一步",
+]);
+
+function thinkingStage(step = 0) {
+  const index = Math.max(0, Number(step) || 0) % THINKING_STAGES.length;
+  return THINKING_STAGES[index];
+}
 
 function stripInjectedContext(text = "") {
   let value = String(text);
@@ -111,6 +122,7 @@ function taskSummaryFromEvents(events, options = {}) {
     startedAt,
     lastEventAt: startedAt,
     workspace: options.workspace || "",
+    thinkingStep: 0,
   };
 
   for (const event of events.slice(lastStart + 1)) {
@@ -128,18 +140,21 @@ function taskSummaryFromEvents(events, options = {}) {
       task.task = shortTaskTitle(extractMessageText(payload), task.task);
       task.mode = "thinking";
       task.phase = "思考中";
-      task.detail = "正在分析任务";
+      task.thinkingStep = 1;
+      task.detail = thinkingStage(task.thinkingStep);
       task.progress = Math.max(task.progress, 12);
     } else if (type === "user_message") {
       task.task = shortTaskTitle(payload.message, task.task);
       task.mode = "thinking";
       task.phase = "思考中";
-      task.detail = "正在分析任务";
+      task.thinkingStep = 1;
+      task.detail = thinkingStage(task.thinkingStep);
       task.progress = Math.max(task.progress, 12);
     } else if (type === "agent_reasoning") {
       task.mode = "thinking";
       task.phase = "思考中";
-      task.detail = "正在分析与规划";
+      task.thinkingStep += 1;
+      task.detail = thinkingStage(task.thinkingStep);
       task.progress = Math.min(88, Math.max(task.progress + 1, 16));
     } else if (type === "custom_tool_call" || type === "function_call") {
       const waiting = /wait/i.test(payload.name || "");
@@ -189,6 +204,7 @@ class CodexMonitor extends EventEmitter {
       source: "本地会话日志",
       events: [],
       tasks: [],
+      thinkingStep: 0,
     };
   }
 
@@ -433,24 +449,28 @@ class CodexMonitor extends EventEmitter {
       patch.phase = "思考中";
       patch.detail = "正在理解任务";
       patch.progress = 8;
+      patch.thinkingStep = 0;
       patch.startedAt = eventTime;
       patch.threadId = this.state.threadId;
     } else if (type === "message" && payload.role === "user") {
       patch.task = shortTaskTitle(extractMessageText(payload), this.state.task);
       patch.mode = "thinking";
       patch.phase = "思考中";
-      patch.detail = "正在分析任务";
+      patch.thinkingStep = 1;
+      patch.detail = thinkingStage(patch.thinkingStep);
       patch.progress = Math.max(this.state.progress, 12);
     } else if (type === "user_message") {
       patch.task = shortTaskTitle(payload.message, this.state.task);
       patch.mode = "thinking";
       patch.phase = "思考中";
-      patch.detail = "正在分析任务";
+      patch.thinkingStep = 1;
+      patch.detail = thinkingStage(patch.thinkingStep);
       patch.progress = Math.max(this.state.progress, 12);
     } else if (type === "agent_reasoning") {
       patch.mode = "thinking";
       patch.phase = "思考中";
-      patch.detail = "正在分析与规划";
+      patch.thinkingStep = (this.state.thinkingStep || 0) + 1;
+      patch.detail = thinkingStage(patch.thinkingStep);
       patch.progress = Math.min(88, Math.max(this.state.progress + 1, 16));
     } else if (type === "custom_tool_call" || type === "function_call") {
       const waiting = /wait/i.test(payload.name || "");
@@ -537,4 +557,5 @@ module.exports = {
   shortTaskTitle,
   stripInjectedContext,
   taskSummaryFromEvents,
+  thinkingStage,
 };

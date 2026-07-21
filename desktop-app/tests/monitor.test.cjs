@@ -7,6 +7,7 @@ const {
   shortTaskTitle,
   stripInjectedContext,
   taskSummaryFromEvents,
+  thinkingStage,
 } = require("../codex-monitor.cjs");
 
 test("strips ambient browser context from task titles", () => {
@@ -55,4 +56,10 @@ test("excludes completed and aborted turns from running tasks", () => {
   const aborted = { timestamp: "2026-07-21T03:00:02.000Z", payload: { type: "turn_aborted" } };
   assert.equal(taskSummaryFromEvents([start, completed]), null);
   assert.equal(taskSummaryFromEvents([start, aborted]), null);
+});
+
+test("exposes rotating high-level thinking stages", () => {
+  assert.equal(thinkingStage(0), "正在理解上下文");
+  assert.equal(thinkingStage(3), "正在规划下一步");
+  assert.equal(thinkingStage(4), "正在理解上下文");
 });

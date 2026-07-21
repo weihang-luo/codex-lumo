@@ -28,6 +28,7 @@
       "main.cjs",
       "preload.cjs",
       "codex-monitor.cjs",
+      "system-monitor.cjs",
       "window-config.cjs",
       "assets/**/*",
       "renderer/**/*",

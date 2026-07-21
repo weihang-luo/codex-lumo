@@ -11,16 +11,17 @@ test("normalizes persisted window settings", () => {
   assert.equal(normalizeWindowSize("small"), "small");
   assert.equal(normalizeWindowSize("unknown"), "medium");
   assert.equal(normalizeRevealMs(5000), 5000);
-  assert.equal(normalizeRevealMs(1234), 4200);
+  assert.equal(normalizeRevealMs(0), 0);
+  assert.equal(normalizeRevealMs(1234), 5000);
 });
 
 test("provides proportional compact window profiles", () => {
-  assert.deepEqual(profileFor("small").compact, { width: 365, height: 54 });
-  assert.deepEqual(profileFor("medium").compact, { width: 420, height: 62 });
-  assert.deepEqual(profileFor("large").compact, { width: 487, height: 72 });
+  assert.deepEqual(profileFor("small").compact, { width: 394, height: 58 });
+  assert.deepEqual(profileFor("medium").compact, { width: 450, height: 66 });
+  assert.deepEqual(profileFor("large").compact, { width: 522, height: 77 });
 });
 
 test("sizes task and settings views independently", () => {
-  assert.deepEqual(expandedSize("medium", 3, "tasks"), { width: 520, height: 342 });
-  assert.deepEqual(expandedSize("medium", 3, "settings"), { width: 520, height: 320 });
+  assert.deepEqual(expandedSize("medium", 3, "tasks"), { width: 550, height: 388 });
+  assert.deepEqual(expandedSize("medium", 3, "settings"), { width: 550, height: 340 });
 });

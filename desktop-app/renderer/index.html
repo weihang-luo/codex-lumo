@@ -13,72 +13,78 @@
   <body>
     <section class="island" id="island" data-mode="resting" data-expanded="false">
       <div class="motion-layer" aria-hidden="true"><i></i><i></i><i></i></div>
-      <header class="primary drag-region">
+
+      <header class="primary" id="primary" role="button" aria-expanded="false" tabindex="0">
         <div class="pet-wrap" aria-hidden="true">
-          <div class="pixel-pet">
-            <span class="bot-shadow"></span>
-            <i class="pixel-antenna"></i>
-            <span class="pixel-head">
-              <span class="pixel-face"><i></i><i></i><b></b></span>
-              <span class="head-light"></span>
-            </span>
-            <span class="pixel-torso"><span class="pixel-core"></span></span>
-            <span class="pixel-arm pixel-arm-left"><i></i></span>
-            <span class="pixel-arm pixel-arm-right"><i></i></span>
-            <span class="pixel-leg pixel-leg-left"><i></i></span>
-            <span class="pixel-leg pixel-leg-right"><i></i></span>
-            <span class="pixel-fx pixel-fx-one"></span>
-            <span class="pixel-fx pixel-fx-two"></span>
-            <span class="pixel-orbit pixel-orbit-one"></span>
-            <span class="pixel-orbit pixel-orbit-two"></span>
-            <span class="pixel-sleep">Z</span>
+          <span class="pet-glow"></span>
+          <span class="pet-sprite"></span>
+          <span class="pet-thought"><i></i><i></i><i></i></span>
+          <span class="pet-signal">!</span>
+        </div>
+
+        <div class="summary" aria-live="polite">
+          <div class="eyebrow">
+            <span><i class="status-dot"></i><b id="connection">LOCAL CODEX</b></span>
+            <span class="task-name" id="taskTitle">等待下一项任务</span>
+          </div>
+          <div class="status-line">
+            <strong id="phase">等待 Codex</strong>
+            <span id="detail">正在寻找本地任务</span>
+          </div>
+          <span class="progress-rail" aria-hidden="true"><i></i></span>
+        </div>
+
+        <div class="system-strip" aria-label="电脑状态">
+          <div class="compact-metric" title="CPU 使用率">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1"/><path d="M6 1v3m4-3v3M6 12v3m4-3v3M1 6h3m-3 4h3m8-4h3m-3 4h3"/></svg>
+            <span><b id="cpuValue">0</b><i>%</i></span>
+          </div>
+          <div class="compact-metric" title="内存使用率">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7h6M5 9h4M4 2v2m3-2v2m3-2v2m2-2v2M4 12v2m3-2v2m3-2v2m2-2v2"/></svg>
+            <span><b id="memoryValue">0</b><i>%</i></span>
           </div>
         </div>
 
-        <div class="summary" id="summary" aria-live="polite">
-          <span class="eyebrow"><i class="status-dot"></i><b id="connection">LOCAL CODEX</b></span>
-          <strong id="phase">等待 Codex</strong>
-          <span id="detail">正在寻找本地任务</span>
-        </div>
-
-        <div class="telemetry">
-          <span class="bars"><i></i><i></i><i></i><i></i></span>
+        <div class="run-state" aria-label="任务进度">
+          <span class="progress-orb"><b id="progress">0</b><i>%</i></span>
           <time id="elapsed">00:00</time>
-        </div>
-
-        <button class="progress no-drag" id="progressButton" aria-label="展开任务详情">
-          <span id="progress">0</span><i>%</i>
-        </button>
-
-        <div class="window-actions no-drag">
-          <button id="passButton" title="鼠标穿透">◇</button>
-          <button id="hideButton" title="隐藏到托盘">—</button>
         </div>
       </header>
 
       <div class="details">
-        <div class="task-panel">
+        <section class="system-panel">
+          <div class="system-head">
+            <span class="micro">SYSTEM TELEMETRY</span>
+            <span id="systemUpdated">LIVE</span>
+          </div>
+          <div class="system-cards">
+            <div class="system-card cpu-card"><span>CPU</span><strong><b id="cpuDetail">0</b>%</strong><i><em id="cpuBar"></em></i></div>
+            <div class="system-card memory-card"><span>MEMORY</span><strong><b id="memoryDetail">0</b>%</strong><i><em id="memoryBar"></em></i></div>
+          </div>
+        </section>
+
+        <section class="task-panel">
           <div class="panel-head">
             <div><span class="micro">ACTIVE TASKS</span><strong>正在运行的任务</strong></div>
             <span class="live-badge"><i></i><b id="taskCount">0</b> RUNNING</span>
           </div>
           <ol class="task-list" id="taskList">
-            <li class="task-empty"><span>等待 Codex 任务</span></li>
+            <li class="task-empty"><span>等待 Codex 任务</span><b>STANDBY</b></li>
           </ol>
-        </div>
+        </section>
 
-        <div class="event-panel">
+        <section class="event-panel">
           <div class="event-head">
             <span class="micro">LIVE EVENTS</span>
             <span id="workspace">CODEX HOME</span>
           </div>
           <ol id="events"><li><i></i><span>等待 Codex 事件</span><time>NOW</time></li></ol>
-        </div>
+        </section>
 
         <footer>
-          <button class="text-button no-drag" id="logsButton">打开日志目录</button>
-          <span>拖动移动 · Ctrl Alt L 显示/隐藏</span>
-          <button class="text-button danger no-drag" id="quitButton">退出</button>
+          <button class="text-button" id="logsButton">打开日志目录</button>
+          <span>单击展开 · 全窗拖动 · Ctrl Alt L 召回</span>
+          <button class="text-button danger" id="quitButton">退出</button>
         </footer>
       </div>
     </section>

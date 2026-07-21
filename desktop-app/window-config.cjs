@@ -1,12 +1,12 @@
 const WINDOW_SCALES = Object.freeze({
-  small: 0.87,
+  small: 0.875,
   medium: 1,
   large: 1.16,
 });
 
 const DEFAULT_WINDOW_SIZE = "medium";
-const DEFAULT_REVEAL_MS = 4200;
-const REVEAL_OPTIONS = Object.freeze([3000, 5000, 8000]);
+const DEFAULT_REVEAL_MS = 5000;
+const REVEAL_OPTIONS = Object.freeze([0, 3000, 5000, 8000]);
 
 function normalizeWindowSize(value) {
   return Object.hasOwn(WINDOW_SCALES, value) ? value : DEFAULT_WINDOW_SIZE;
@@ -24,11 +24,11 @@ function profileFor(value) {
     name,
     scale,
     compact: {
-      width: Math.round(420 * scale),
-      height: Math.round(62 * scale),
+      width: Math.round(450 * scale),
+      height: Math.round(66 * scale),
     },
-    expandedWidth: Math.round(520 * scale),
-    settingsHeight: Math.round(320 * scale),
+    expandedWidth: Math.round(550 * scale),
+    settingsHeight: Math.round(340 * scale),
   };
 }
 
@@ -40,7 +40,7 @@ function expandedSize(value, taskCount = 1, view = "tasks") {
   const visibleRows = Math.max(1, Math.min(5, Number(taskCount) || 1));
   return {
     width: profile.expandedWidth,
-    height: Math.round((210 + visibleRows * 44) * profile.scale),
+    height: Math.round((250 + visibleRows * 46) * profile.scale),
   };
 }
 

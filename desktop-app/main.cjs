@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { CodexMonitor } = require("./codex-monitor.cjs");
+const { SystemMonitor } = require("./system-monitor.cjs");
 const {
   DEFAULT_REVEAL_MS,
   DEFAULT_WINDOW_SIZE,
@@ -20,7 +21,9 @@ const appIconPath = path.join(__dirname, "assets", "lumo.ico");
 let mainWindow = null;
 let tray = null;
 let monitor = null;
+let systemMonitor = null;
 let latestState = null;
+let latestSystem = null;
 let clickThrough = false;
 let isQuitting = false;
 let settings = {
@@ -32,7 +35,6 @@ let settings = {
   updateRevealMs: DEFAULT_REVEAL_MS,
 };
 let savePositionTimer = null;
-let dockEvaluationTimer = null;
 let topHideTimer = null;
 let topAnimationTimer = null;
 let cursorPollTimer = null;
@@ -44,6 +46,7 @@ let windowView = "tasks";
 let internalMove = false;
 let revealUntil = 0;
 let lastStateSignal = "";
+let dragSession = null;
 
 function settingsPath() {
   return path.join(app.getPath("userData"), "settings.json");
@@ -141,18 +144,15 @@ function createWindow() {
     }
   });
   mainWindow.on("move", () => {
-    if (internalMove) return;
+    if (internalMove || dragSession) return;
     clearTimeout(savePositionTimer);
-    clearTimeout(dockEvaluationTimer);
     savePositionTimer = setTimeout(() => {
       if (!mainWindow) return;
       const { x, y } = mainWindow.getBounds();
-      const workArea = screen.getDisplayMatching(mainWindow.getBounds()).workArea;
-      settings.position = { x, y: dockedTop ? workArea.y : y };
+      settings.position = { x, y };
       settings.dockedTop = dockedTop;
       saveSettings();
     }, 350);
-    dockEvaluationTimer = setTimeout(evaluateTopDock, 520);
   });
 }
 
@@ -238,6 +238,64 @@ function evaluateTopDock() {
   }
   saveSettings();
   rebuildTrayMenu();
+}
+
+function startWindowDrag(screenX, screenY) {
+  if (!mainWindow || !Number.isFinite(screenX) || !Number.isFinite(screenY)) return false;
+  dragSession = {
+    startX: screenX,
+    startY: screenY,
+    startBounds: mainWindow.getBounds(),
+    moved: false,
+    wasDocked: dockedTop,
+  };
+  return true;
+}
+
+function moveWindowDrag(screenX, screenY) {
+  if (!mainWindow || !dragSession || !Number.isFinite(screenX) || !Number.isFinite(screenY)) return;
+  const deltaX = Math.round(screenX - dragSession.startX);
+  const deltaY = Math.round(screenY - dragSession.startY);
+  if (!dragSession.moved && Math.hypot(deltaX, deltaY) < 3) return;
+
+  if (!dragSession.moved) {
+    clearTimeout(topHideTimer);
+    clearInterval(topAnimationTimer);
+    topAnimationTimer = null;
+    dragSession.moved = true;
+    dockedTop = false;
+    hiddenAtTop = false;
+    settings.dockedTop = false;
+    revealUntil = 0;
+    sendDockMotion("visible");
+  }
+
+  internalMove = true;
+  try {
+    mainWindow.setPosition(
+      dragSession.startBounds.x + deltaX,
+      dragSession.startBounds.y + deltaY,
+      false,
+    );
+  } catch {}
+}
+
+function endWindowDrag(rendererMoved) {
+  if (!mainWindow || !dragSession) return false;
+  const completed = dragSession;
+  dragSession = null;
+  internalMove = false;
+  if (!completed.moved || !rendererMoved) {
+    if (completed.wasDocked) scheduleTopHide(850);
+    return false;
+  }
+
+  const { x, y } = mainWindow.getBounds();
+  settings.position = { x, y };
+  settings.dockedTop = false;
+  saveSettings();
+  evaluateTopDock();
+  return true;
 }
 
 function hideAtTop() {
@@ -364,14 +422,15 @@ function rebuildTrayMenu() {
       {
         label: "悬浮窗尺寸",
         submenu: [
-          { label: "小 · 365 × 54", type: "radio", checked: settings.windowSize === "small", click: () => updateSettings({ windowSize: "small" }) },
-          { label: "标准 · 420 × 62", type: "radio", checked: settings.windowSize === "medium", click: () => updateSettings({ windowSize: "medium" }) },
-          { label: "大 · 487 × 72", type: "radio", checked: settings.windowSize === "large", click: () => updateSettings({ windowSize: "large" }) },
+          { label: "小 · 394 × 58", type: "radio", checked: settings.windowSize === "small", click: () => updateSettings({ windowSize: "small" }) },
+          { label: "标准 · 450 × 66", type: "radio", checked: settings.windowSize === "medium", click: () => updateSettings({ windowSize: "medium" }) },
+          { label: "大 · 522 × 77", type: "radio", checked: settings.windowSize === "large", click: () => updateSettings({ windowSize: "large" }) },
         ],
       },
       {
         label: "更新弹出时长",
         submenu: [
+          { label: "不自动弹出", type: "radio", checked: settings.updateRevealMs === 0, click: () => updateSettings({ updateRevealMs: 0 }) },
           { label: "3 秒", type: "radio", checked: settings.updateRevealMs === 3000, click: () => updateSettings({ updateRevealMs: 3000 }) },
           { label: "5 秒", type: "radio", checked: settings.updateRevealMs === 5000, click: () => updateSettings({ updateRevealMs: 5000 }) },
           { label: "8 秒", type: "radio", checked: settings.updateRevealMs === 8000, click: () => updateSettings({ updateRevealMs: 8000 }) },
@@ -438,6 +497,7 @@ function resizeWindow(expanded, taskCount = 1, view = "tasks") {
 
 function registerIpc() {
   ipcMain.handle("lumo:get-state", () => latestState);
+  ipcMain.handle("lumo:get-system", () => latestSystem);
   ipcMain.handle("lumo:resize", (_event, expanded, taskCount, view) => resizeWindow(expanded, taskCount, view));
   ipcMain.handle("lumo:hide", () => mainWindow?.hide());
   ipcMain.handle("lumo:quit", () => {
@@ -449,6 +509,9 @@ function registerIpc() {
   ipcMain.handle("lumo:get-settings", () => publicSettings());
   ipcMain.handle("lumo:update-settings", (_event, patch) => updateSettings(patch));
   ipcMain.handle("lumo:set-launch-at-login", (_event, enabled) => setLaunchAtLogin(enabled));
+  ipcMain.handle("lumo:drag-start", (_event, screenX, screenY) => startWindowDrag(screenX, screenY));
+  ipcMain.on("lumo:drag-move", (_event, screenX, screenY) => moveWindowDrag(screenX, screenY));
+  ipcMain.handle("lumo:drag-end", (_event, moved) => endWindowDrag(moved));
   ipcMain.on("lumo:set-hovered", (_event, hovered) => {
     windowHovered = Boolean(hovered);
     if (windowHovered && hiddenAtTop) revealTop();
@@ -504,16 +567,23 @@ if (!gotLock) {
       latestState = state;
       mainWindow?.webContents.send("lumo:state", state);
       const tasksSignal = (state.tasks || [])
-        .map((task) => [task.id, task.mode, task.phase, task.progress, task.task].join("~"))
+        .map((task) => [task.id, task.mode, task.phase, task.detail, task.task].join("~"))
         .join(";");
-      const stateSignal = [state.mode, state.phase, state.detail, state.progress, state.task, tasksSignal].join("|");
-      if (lastStateSignal && stateSignal !== lastStateSignal && dockedTop) {
+      const stateSignal = [state.mode, state.phase, state.detail, state.task, tasksSignal].join("|");
+      if (lastStateSignal && stateSignal !== lastStateSignal && dockedTop && settings.updateRevealMs > 0) {
         revealTop(settings.updateRevealMs);
       }
       lastStateSignal = stateSignal;
       rebuildTrayMenu();
     });
     monitor.start();
+
+    systemMonitor = new SystemMonitor();
+    systemMonitor.on("state", (state) => {
+      latestSystem = state;
+      mainWindow?.webContents.send("lumo:system", state);
+    });
+    systemMonitor.start();
   });
 }
 
@@ -521,6 +591,7 @@ app.on("window-all-closed", () => {});
 app.on("before-quit", () => {
   isQuitting = true;
   monitor?.stop();
+  systemMonitor?.stop();
   clearInterval(cursorPollTimer);
   clearInterval(topAnimationTimer);
   globalShortcut.unregisterAll();

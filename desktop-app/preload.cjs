@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("lumo", {
   getState: () => ipcRenderer.invoke("lumo:get-state"),
+  getSystem: () => ipcRenderer.invoke("lumo:get-system"),
   resize: (expanded, taskCount = 1, view = "tasks") =>
     ipcRenderer.invoke("lumo:resize", Boolean(expanded), Number(taskCount) || 1, view),
   hide: () => ipcRenderer.invoke("lumo:hide"),
@@ -11,6 +12,11 @@ contextBridge.exposeInMainWorld("lumo", {
   getSettings: () => ipcRenderer.invoke("lumo:get-settings"),
   setLaunchAtLogin: (enabled) => ipcRenderer.invoke("lumo:set-launch-at-login", Boolean(enabled)),
   setHovered: (hovered) => ipcRenderer.send("lumo:set-hovered", Boolean(hovered)),
+  startDrag: (screenX, screenY) =>
+    ipcRenderer.invoke("lumo:drag-start", Number(screenX), Number(screenY)),
+  moveDrag: (screenX, screenY) =>
+    ipcRenderer.send("lumo:drag-move", Number(screenX), Number(screenY)),
+  endDrag: (moved) => ipcRenderer.invoke("lumo:drag-end", Boolean(moved)),
   onState: (callback) => {
     const handler = (_event, state) => callback(state);
     ipcRenderer.on("lumo:state", handler);
@@ -25,6 +31,11 @@ contextBridge.exposeInMainWorld("lumo", {
     const handler = (_event, settings) => callback(settings);
     ipcRenderer.on("lumo:settings", handler);
     return () => ipcRenderer.removeListener("lumo:settings", handler);
+  },
+  onSystem: (callback) => {
+    const handler = (_event, state) => callback(state);
+    ipcRenderer.on("lumo:system", handler);
+    return () => ipcRenderer.removeListener("lumo:system", handler);
   },
   onDockMotion: (callback) => {
     const handler = (_event, phase) => callback(phase);

@@ -1,20 +1,19 @@
 const island = document.getElementById("island");
-const progressButton = document.getElementById("progressButton");
-const hideButton = document.getElementById("hideButton");
-const passButton = document.getElementById("passButton");
+const primary = document.getElementById("primary");
 const logsButton = document.getElementById("logsButton");
 const quitButton = document.getElementById("quitButton");
 
 let expanded = false;
 let latestState = null;
+let latestSystem = null;
 let lastMode = "";
 let lastProgress = -1;
 let lastTaskSignature = "";
 let renderedTaskCount = 1;
 let statePulseTimer = null;
-let progressPulseTimer = null;
 let boredTimer = null;
 let boredClearTimer = null;
+let gesture = null;
 
 const BORED_MOVES = ["look", "wave", "stretch", "dance"];
 
@@ -22,13 +21,25 @@ const elements = {
   connection: document.getElementById("connection"),
   phase: document.getElementById("phase"),
   detail: document.getElementById("detail"),
+  taskTitle: document.getElementById("taskTitle"),
   elapsed: document.getElementById("elapsed"),
   progress: document.getElementById("progress"),
   taskCount: document.getElementById("taskCount"),
   taskList: document.getElementById("taskList"),
   workspace: document.getElementById("workspace"),
   events: document.getElementById("events"),
+  cpuValue: document.getElementById("cpuValue"),
+  memoryValue: document.getElementById("memoryValue"),
+  cpuDetail: document.getElementById("cpuDetail"),
+  memoryDetail: document.getElementById("memoryDetail"),
+  cpuBar: document.getElementById("cpuBar"),
+  memoryBar: document.getElementById("memoryBar"),
+  systemUpdated: document.getElementById("systemUpdated"),
 };
+
+function clamp(value, minimum = 0, maximum = 100) {
+  return Math.max(minimum, Math.min(maximum, Number(value) || 0));
+}
 
 function formatTime(seconds = 0) {
   const safe = Math.max(0, Number(seconds) || 0);
@@ -126,23 +137,26 @@ function renderTasks(state) {
     workspace.textContent = compactPath(task.workspace);
     copy.append(title, workspace);
 
-    const phase = document.createElement("span");
+    const phase = document.createElement("div");
     phase.className = "task-phase";
-    phase.textContent = task.phase || "运行中";
-    phase.title = task.detail || "";
+    const phaseName = document.createElement("strong");
+    phaseName.textContent = task.phase || "运行中";
+    const phaseDetail = document.createElement("span");
+    phaseDetail.textContent = task.detail || "";
+    phase.append(phaseName, phaseDetail);
 
     const metrics = document.createElement("div");
     metrics.className = "task-metrics";
     const elapsed = document.createElement("time");
     elapsed.textContent = formatTime(task.elapsedSeconds);
     const progress = document.createElement("b");
-    progress.textContent = `${Math.max(0, Math.min(100, Number(task.progress) || 0))}%`;
+    progress.textContent = `${clamp(task.progress)}%`;
     metrics.append(elapsed, progress);
 
     const track = document.createElement("span");
     track.className = "task-track";
     const fill = document.createElement("i");
-    fill.style.width = `${Math.max(0, Math.min(100, Number(task.progress) || 0))}%`;
+    fill.style.width = `${clamp(task.progress)}%`;
     track.append(fill);
 
     item.append(signal, copy, phase, metrics, track);
@@ -156,34 +170,23 @@ function scheduleBoredMove(mode) {
   delete island.dataset.bored;
   if (mode !== "resting") return;
 
-  const delay = 3200 + Math.floor(Math.random() * 6200);
   boredTimer = setTimeout(() => {
-    const move = BORED_MOVES[Math.floor(Math.random() * BORED_MOVES.length)];
-    island.dataset.bored = move;
+    island.dataset.bored = BORED_MOVES[Math.floor(Math.random() * BORED_MOVES.length)];
     boredClearTimer = setTimeout(() => {
       delete island.dataset.bored;
       scheduleBoredMove(mode);
-    }, 1500 + Math.floor(Math.random() * 700));
-  }, delay);
+    }, 1600 + Math.floor(Math.random() * 700));
+  }, 3200 + Math.floor(Math.random() * 6200));
 }
 
 function animateStateChange(mode, progress) {
-  if (mode !== lastMode) {
-    scheduleBoredMove(mode);
-  }
-  if (lastMode && mode !== lastMode) {
+  if (mode !== lastMode) scheduleBoredMove(mode);
+  if ((lastMode && mode !== lastMode) || (lastProgress >= 0 && progress !== lastProgress)) {
     clearTimeout(statePulseTimer);
     island.classList.remove("state-pulse");
     void island.offsetWidth;
     island.classList.add("state-pulse");
     statePulseTimer = setTimeout(() => island.classList.remove("state-pulse"), 680);
-  }
-  if (lastProgress >= 0 && progress !== lastProgress) {
-    clearTimeout(progressPulseTimer);
-    progressButton.classList.remove("progress-pulse");
-    void progressButton.offsetWidth;
-    progressButton.classList.add("progress-pulse");
-    progressPulseTimer = setTimeout(() => progressButton.classList.remove("progress-pulse"), 480);
   }
   lastMode = mode;
   lastProgress = progress;
@@ -192,20 +195,21 @@ function animateStateChange(mode, progress) {
 function render(state) {
   if (!state) return;
   latestState = state;
-  const progress = Math.max(0, Math.min(100, Number(state.progress) || 0));
-  const elapsed = formatTime(state.elapsedSeconds);
+  const progress = clamp(state.progress);
   const mode = state.mode || "resting";
+  const taskCount = currentTasks(state).length;
   island.dataset.mode = mode;
   island.style.setProperty("--progress", `${progress * 3.6}deg`);
   island.style.setProperty("--progress-percent", `${progress}%`);
-  const taskCount = currentTasks(state).length;
   elements.connection.textContent = state.connection === "connected"
-    ? `LOCAL CODEX / ${taskCount || 0} ACTIVE`
+    ? `CODEX / ${taskCount || 0} ACTIVE`
     : "LOCAL CODEX";
   elements.phase.textContent = state.phase || "等待 Codex";
-  elements.detail.textContent = state.task || state.detail || "正在寻找本地任务";
+  elements.detail.textContent = state.detail || "正在寻找本地任务";
   elements.detail.title = state.detail || "";
-  elements.elapsed.textContent = elapsed;
+  elements.taskTitle.textContent = state.task || "等待下一项任务";
+  elements.taskTitle.title = state.task || "";
+  elements.elapsed.textContent = formatTime(state.elapsedSeconds);
   elements.progress.textContent = String(progress);
   elements.workspace.textContent = compactPath(state.workspace);
   animateStateChange(mode, progress);
@@ -213,16 +217,77 @@ function render(state) {
   renderEvents(state.events);
 }
 
+function renderSystem(state) {
+  if (!state) return;
+  latestSystem = state;
+  const cpu = clamp(state.cpu);
+  const memory = clamp(state.memory);
+
+  elements.cpuValue.textContent = String(cpu);
+  elements.memoryValue.textContent = String(memory);
+  elements.cpuDetail.textContent = String(cpu);
+  elements.memoryDetail.textContent = String(memory);
+  elements.cpuBar.style.width = `${cpu}%`;
+  elements.memoryBar.style.width = `${memory}%`;
+  elements.systemUpdated.textContent = "LIVE";
+  island.dataset.systemLoad = cpu >= 85 || memory >= 90 ? "high" : "normal";
+}
+
 async function setExpanded(value) {
   expanded = Boolean(value);
   island.dataset.expanded = String(expanded);
-  progressButton.setAttribute("aria-label", expanded ? "收起任务详情" : "展开任务详情");
+  primary.setAttribute("aria-expanded", String(expanded));
   await window.lumo.resize(expanded, renderedTaskCount, "tasks");
 }
 
-progressButton.addEventListener("click", () => setExpanded(!expanded));
-hideButton.addEventListener("click", () => window.lumo.hide());
-passButton.addEventListener("click", () => window.lumo.toggleClickThrough());
+function isInteractive(target) {
+  return target instanceof Element && Boolean(target.closest("button, a"));
+}
+
+function finishGesture(event, cancelled = false) {
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+  const completed = gesture;
+  gesture = null;
+  if (island.hasPointerCapture(event.pointerId)) island.releasePointerCapture(event.pointerId);
+  completed.ready
+    .then(() => window.lumo.endDrag(completed.moved))
+    .then(() => {
+      if (!cancelled && !completed.moved && completed.startedInPrimary) setExpanded(!expanded);
+    });
+}
+
+island.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || isInteractive(event.target)) return;
+  gesture = {
+    pointerId: event.pointerId,
+    startX: event.screenX,
+    startY: event.screenY,
+    moved: false,
+    startedInPrimary: Boolean(event.target.closest(".primary")),
+    ready: window.lumo.startDrag(event.screenX, event.screenY),
+  };
+  island.setPointerCapture(event.pointerId);
+  event.preventDefault();
+});
+
+island.addEventListener("pointermove", (event) => {
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+  const distance = Math.hypot(event.screenX - gesture.startX, event.screenY - gesture.startY);
+  if (distance < 4 && !gesture.moved) return;
+  gesture.moved = true;
+  gesture.ready.then(() => window.lumo.moveDrag(event.screenX, event.screenY));
+});
+
+island.addEventListener("pointerup", (event) => finishGesture(event));
+island.addEventListener("pointercancel", (event) => finishGesture(event, true));
+
+primary.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    setExpanded(!expanded);
+  }
+});
+
 logsButton.addEventListener("click", () => window.lumo.openLogs());
 quitButton.addEventListener("click", () => window.lumo.quit());
 
@@ -232,10 +297,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 window.lumo.onState(render);
-window.lumo.onClickThrough((enabled) => {
-  passButton.textContent = enabled ? "◆" : "◇";
-  passButton.title = enabled ? "关闭鼠标穿透（Ctrl Alt L 召回）" : "开启鼠标穿透";
-});
+window.lumo.onSystem(renderSystem);
 window.lumo.onSettings((settings) => {
   document.body.dataset.windowSize = settings.windowSize || "medium";
 });
@@ -250,6 +312,8 @@ window.lumo.getSettings().then((settings) => {
   document.body.dataset.windowSize = settings.windowSize || "medium";
 });
 window.lumo.getState().then(render);
+window.lumo.getSystem().then(renderSystem);
+
 setInterval(() => {
   if (!latestState) return;
   const elapsedSeconds = latestState.startedAt
@@ -262,4 +326,8 @@ setInterval(() => {
     const time = row.querySelector(".task-metrics time");
     if (time) time.textContent = formatTime(taskElapsed);
   });
+  if (latestSystem?.updatedAt) {
+    const age = Math.max(0, Math.floor((Date.now() - latestSystem.updatedAt) / 1000));
+    if (age > 6) elements.systemUpdated.textContent = `${age}S AGO`;
+  }
 }, 1000);
