@@ -1,11 +1,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  TOP_DOCK_GAP,
   expandedSize,
   normalizeRevealMs,
   normalizeWindowSize,
   profileFor,
 } = require("../window-config.cjs");
+
+test("keeps a compact breathing gap below the top edge while docked", () => {
+  assert.equal(TOP_DOCK_GAP, 12);
+});
 
 test("normalizes persisted window settings", () => {
   assert.equal(normalizeWindowSize("small"), "small");

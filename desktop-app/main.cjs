@@ -8,6 +8,7 @@ const { ProgressRevealPolicy } = require("./reveal-policy.cjs");
 const {
   DEFAULT_REVEAL_MS,
   DEFAULT_WINDOW_SIZE,
+  TOP_DOCK_GAP,
   expandedSize,
   normalizeRevealMs,
   normalizeWindowSize,
@@ -317,7 +318,7 @@ function revealTop(duration = 0) {
   const workArea = screen.getDisplayMatching(bounds).workArea;
   hiddenAtTop = false;
   if (duration > 0) revealUntil = Math.max(revealUntil, Date.now() + duration);
-  animateWindowY(workArea.y, 300, "showing");
+  animateWindowY(workArea.y + TOP_DOCK_GAP, 300, "showing");
   if (duration > 0) scheduleTopHide(duration + 220);
 }
 
@@ -488,7 +489,7 @@ function resizeWindow(expanded, taskCount = 1, view = "tasks") {
   const centerX = current.x + current.width / 2;
   const x = Math.max(display.x, Math.min(display.x + display.width - next.width, Math.round(centerX - next.width / 2)));
   const y = dockedTop
-    ? display.y
+    ? display.y + TOP_DOCK_GAP
     : Math.max(display.y, Math.min(display.y + display.height - next.height, current.y));
   hiddenAtTop = false;
   setBoundsInternally({ x, y, ...next }, true);

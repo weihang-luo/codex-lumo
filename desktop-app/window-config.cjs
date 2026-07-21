@@ -7,6 +7,7 @@ const WINDOW_SCALES = Object.freeze({
 const DEFAULT_WINDOW_SIZE = "medium";
 const DEFAULT_REVEAL_MS = 5000;
 const MAX_VISIBLE_TASKS = 5;
+const TOP_DOCK_GAP = 12;
 const REVEAL_OPTIONS = Object.freeze([0, 3000, 5000, 8000]);
 
 function normalizeWindowSize(value) {
@@ -52,6 +53,7 @@ module.exports = {
   DEFAULT_WINDOW_SIZE,
   MAX_VISIBLE_TASKS,
   REVEAL_OPTIONS,
+  TOP_DOCK_GAP,
   WINDOW_SCALES,
   expandedSize,
   normalizeRevealMs,
