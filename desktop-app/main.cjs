@@ -497,11 +497,27 @@ function resizeWindow(expanded, taskCount = 1, view = "tasks") {
   return true;
 }
 
+async function openCodex() {
+  try {
+    await shell.openExternal("codex://");
+    return true;
+  } catch {
+    if (process.platform !== "win32") return false;
+    try {
+      await shell.openExternal("shell:AppsFolder\\OpenAI.Codex_2p2nqsd0c76g0!App");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 function registerIpc() {
   ipcMain.handle("lumo:get-state", () => latestState);
   ipcMain.handle("lumo:get-system", () => latestSystem);
   ipcMain.handle("lumo:resize", (_event, expanded, taskCount, view) => resizeWindow(expanded, taskCount, view));
   ipcMain.handle("lumo:hide", () => mainWindow?.hide());
+  ipcMain.handle("lumo:open-codex", openCodex);
   ipcMain.handle("lumo:quit", () => {
     isQuitting = true;
     app.quit();

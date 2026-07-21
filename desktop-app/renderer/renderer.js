@@ -14,6 +14,9 @@ let statePulseTimer = null;
 let petActionTimer = null;
 let petActionClearTimer = null;
 let gesture = null;
+let activationTimer = null;
+let lastActivationAt = 0;
+const DOUBLE_CLICK_MS = 320;
 
 const PET_ACTIONS = {
   thinking: [
@@ -125,14 +128,21 @@ function quotaWindowLabel(minutes = 0) {
   return value ? `${Math.round(value)}M` : "QUOTA";
 }
 
-function quotaResetLabel(resetsAt = 0) {
+function quotaResetTimeLabel(resetsAt = 0) {
   const numeric = Number(resetsAt) || 0;
   if (!numeric) return "";
   const timestamp = numeric < 1e12 ? numeric * 1000 : numeric;
-  const remaining = Math.max(0, timestamp - Date.now());
-  if (remaining >= 86400000) return `${Math.ceil(remaining / 86400000)}D`;
-  if (remaining >= 3600000) return `${Math.ceil(remaining / 3600000)}H`;
-  return `${Math.max(1, Math.ceil(remaining / 60000))}M`;
+  const reset = new Date(timestamp);
+  if (!Number.isFinite(reset.getTime())) return "";
+  const now = new Date();
+  const sameDay = reset.getFullYear() === now.getFullYear()
+    && reset.getMonth() === now.getMonth()
+    && reset.getDate() === now.getDate();
+  const pad = (value) => String(value).padStart(2, "0");
+  const time = `${pad(reset.getHours())}:${pad(reset.getMinutes())}`;
+  return sameDay
+    ? `RESET ${time}`
+    : `RESET ${pad(reset.getMonth() + 1)}/${pad(reset.getDate())} ${time}`;
 }
 
 function renderQuota(quota) {
@@ -142,7 +152,7 @@ function renderQuota(quota) {
   const value = unlimited ? "∞" : available ? String(remaining) : "--";
   const unit = available && !unlimited ? "%" : "";
   const windowLabel = quotaWindowLabel(quota?.windowMinutes);
-  const resetLabel = quotaResetLabel(quota?.resetsAt);
+  const resetTimeLabel = quotaResetTimeLabel(quota?.resetsAt);
   const resetTimestamp = Number(quota?.resetsAt) || 0;
   const resetDate = resetTimestamp
     ? new Date(resetTimestamp < 1e12 ? resetTimestamp * 1000 : resetTimestamp).toLocaleString("zh-CN")
@@ -156,7 +166,7 @@ function renderQuota(quota) {
   elements.quotaDetail.textContent = value;
   elements.quotaDetailUnit.textContent = unit;
   elements.quotaLabel.textContent = available
-    ? `${windowLabel} LEFT${resetLabel ? ` · ${resetLabel}` : ""}`
+    ? resetTimeLabel || `${windowLabel} LEFT`
     : "QUOTA LEFT";
   elements.quotaBar.style.width = `${unlimited ? 100 : remaining}%`;
   elements.quotaMetric.title = title;
@@ -365,15 +375,35 @@ function isInteractive(target) {
   return target instanceof Element && Boolean(target.closest("button, a"));
 }
 
+function activateWindow(startedInPrimary, activationAt) {
+  const elapsed = activationAt - lastActivationAt;
+  if (lastActivationAt && elapsed >= 0 && elapsed <= DOUBLE_CLICK_MS) {
+    clearTimeout(activationTimer);
+    activationTimer = null;
+    lastActivationAt = 0;
+    window.lumo.openCodex();
+    return;
+  }
+
+  clearTimeout(activationTimer);
+  lastActivationAt = activationAt;
+  activationTimer = setTimeout(() => {
+    activationTimer = null;
+    lastActivationAt = 0;
+    if (startedInPrimary) setExpanded(!expanded);
+  }, DOUBLE_CLICK_MS);
+}
+
 function finishGesture(event, cancelled = false) {
   if (!gesture || event.pointerId !== gesture.pointerId) return;
   const completed = gesture;
+  const activationAt = Date.now();
   gesture = null;
   if (island.hasPointerCapture(event.pointerId)) island.releasePointerCapture(event.pointerId);
   completed.ready
     .then(() => window.lumo.endDrag(completed.moved))
     .then(() => {
-      if (!cancelled && !completed.moved && completed.startedInPrimary) setExpanded(!expanded);
+      if (!cancelled && !completed.moved) activateWindow(completed.startedInPrimary, activationAt);
     });
 }
 

@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("lumo", {
     ipcRenderer.invoke("lumo:resize", Boolean(expanded), Number(taskCount) || 1, view),
   hide: () => ipcRenderer.invoke("lumo:hide"),
   quit: () => ipcRenderer.invoke("lumo:quit"),
+  openCodex: () => ipcRenderer.invoke("lumo:open-codex"),
   openLogs: () => ipcRenderer.invoke("lumo:open-logs"),
   toggleClickThrough: () => ipcRenderer.invoke("lumo:toggle-click-through"),
   getSettings: () => ipcRenderer.invoke("lumo:get-settings"),
