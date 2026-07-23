@@ -27,13 +27,13 @@ test("provides proportional compact window profiles", () => {
 });
 
 test("sizes task and settings views independently", () => {
-  assert.deepEqual(expandedSize("medium", 3, "tasks"), { width: 450, height: 430 });
+  assert.deepEqual(expandedSize("medium", 3, "tasks"), { width: 450, height: 466 });
   assert.deepEqual(expandedSize("medium", 3, "settings"), { width: 450, height: 340 });
-  assert.deepEqual(expandedSize("small", 1, "tasks"), { width: 394, height: 278 });
+  assert.deepEqual(expandedSize("small", 1, "tasks"), { width: 394, height: 290 });
   assert.deepEqual(expandedSize("small", 1, "settings"), { width: 394, height: 340 });
 });
 
 test("shows five task rows before the detail list needs scrolling", () => {
-  assert.deepEqual(expandedSize("medium", 5, "tasks"), { width: 450, height: 582 });
-  assert.deepEqual(expandedSize("medium", 8, "tasks"), { width: 450, height: 582 });
+  assert.deepEqual(expandedSize("medium", 5, "tasks"), { width: 450, height: 642 });
+  assert.deepEqual(expandedSize("medium", 8, "tasks"), { width: 450, height: 642 });
 });

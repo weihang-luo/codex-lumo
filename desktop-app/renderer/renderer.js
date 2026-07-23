@@ -119,15 +119,15 @@ function formatClock(timestamp = 0) {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
-function relativeAge(timestamp = 0) {
+function relativeUpdateLabel(timestamp = 0) {
   const numeric = Number(timestamp) || 0;
-  if (!numeric) return "--";
+  if (!numeric) return "更新时间未知";
   const seconds = Math.max(0, Math.floor((Date.now() - numeric) / 1000));
-  if (seconds < 4) return "NOW";
-  if (seconds < 60) return `${seconds}S`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}M`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}H`;
-  return `${Math.floor(seconds / 86400)}D`;
+  if (seconds < 4) return "刚刚更新";
+  if (seconds < 60) return `${seconds} 秒前更新`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前更新`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前更新`;
+  return `${Math.floor(seconds / 86400)} 天前更新`;
 }
 
 function shortThreadId(value = "") {
@@ -261,25 +261,55 @@ function renderTasks(state) {
 
     const copy = document.createElement("div");
     copy.className = "task-copy";
+
+    const heading = document.createElement("div");
+    heading.className = "task-heading";
     const title = document.createElement("strong");
     title.className = "task-name";
     title.textContent = task.task || "Codex 任务";
     title.title = task.task || "";
 
+    const state = document.createElement("span");
+    state.className = "task-state";
+    const stateDot = document.createElement("i");
+    const stateText = document.createElement("b");
+    stateText.textContent = task.phase || "运行中";
+    state.append(stateDot, stateText);
+    heading.append(title, state);
+
     const activity = document.createElement("p");
-    activity.className = "task-context task-activity";
-    const activityLabel = document.createElement("b");
-    activityLabel.textContent = "NOW";
+    activity.className = "task-line task-activity";
+    const activityLabel = document.createElement("span");
+    activityLabel.className = "task-line-label";
+    const activityDot = document.createElement("i");
+    const activityLabelText = document.createElement("b");
+    activityLabelText.textContent = "当前";
+    activityLabel.append(activityDot, activityLabelText);
     const activityText = document.createElement("span");
+    activityText.className = "task-line-text";
     activityText.textContent = task.detail || "正在等待任务事件";
     activityText.title = task.detail || "";
-    activity.append(activityLabel, activityText);
+
+    const duration = document.createElement("span");
+    duration.className = "task-duration";
+    const durationLabel = document.createElement("b");
+    durationLabel.textContent = "已运行";
+    const elapsed = document.createElement("time");
+    elapsed.className = "task-elapsed";
+    elapsed.textContent = formatTime(task.elapsedSeconds);
+    duration.append(durationLabel, elapsed);
+    activity.append(activityLabel, activityText, duration);
 
     const reply = document.createElement("p");
-    reply.className = "task-context task-reply";
-    const replyLabel = document.createElement("b");
-    replyLabel.textContent = "REPLY";
+    reply.className = "task-line task-reply";
+    const replyLabel = document.createElement("span");
+    replyLabel.className = "task-line-label";
+    const replyMark = document.createElement("i");
+    const replyLabelText = document.createElement("b");
+    replyLabelText.textContent = "回复";
+    replyLabel.append(replyMark, replyLabelText);
     const replyText = document.createElement("span");
+    replyText.className = "task-line-text";
     replyText.textContent = task.latestReply || "尚无可见回复";
     replyText.title = task.latestReply || "";
     if (!task.latestReply) reply.classList.add("is-empty");
@@ -292,32 +322,24 @@ function renderTasks(state) {
     workspace.textContent = compactPath(task.workspace);
     workspace.title = task.workspace || "";
     const started = document.createElement("time");
-    started.textContent = `START ${formatClock(task.startedAt)}`;
+    started.className = "task-started";
+    started.textContent = `${formatClock(task.startedAt)} 开始`;
     started.dateTime = task.startedAt ? new Date(task.startedAt).toISOString() : "";
     const thread = document.createElement("code");
     thread.textContent = `#${shortThreadId(task.id)}`;
     thread.title = task.id || "本地任务";
-    meta.append(workspace, started, thread);
-    copy.append(title, activity, reply, meta);
-
-    const metrics = document.createElement("div");
-    metrics.className = "task-metrics";
-    const phaseName = document.createElement("strong");
-    phaseName.textContent = task.phase || "运行中";
-    const elapsed = document.createElement("time");
-    elapsed.className = "task-elapsed";
-    elapsed.textContent = formatTime(task.elapsedSeconds);
     const updated = document.createElement("span");
     updated.className = "task-updated";
-    updated.textContent = `UPDATE ${relativeAge(task.lastEventAt)}`;
-    metrics.append(phaseName, elapsed, updated);
+    updated.textContent = relativeUpdateLabel(task.lastEventAt);
+    meta.append(workspace, started, thread, updated);
+    copy.append(heading, activity, reply, meta);
 
     const track = document.createElement("span");
     track.className = "task-track";
     const fill = document.createElement("i");
     track.append(fill);
 
-    item.append(signal, copy, metrics, track);
+    item.append(signal, copy, track);
     elements.taskList.append(item);
   });
 }
@@ -563,7 +585,7 @@ setInterval(() => {
     const time = row.querySelector(".task-elapsed");
     if (time) time.textContent = formatTime(taskElapsed);
     const updated = row.querySelector(".task-updated");
-    if (updated) updated.textContent = `UPDATE ${relativeAge(Number(row.dataset.lastEventAt || 0))}`;
+    if (updated) updated.textContent = relativeUpdateLabel(Number(row.dataset.lastEventAt || 0));
   });
   if (latestSystem?.updatedAt) {
     const age = Math.max(0, Math.floor((Date.now() - latestSystem.updatedAt) / 1000));

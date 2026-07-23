@@ -557,8 +557,8 @@ button { font: inherit; }
 
 .task-panel { min-height: 0; display: grid; grid-template-rows: 27px minmax(0, 1fr); padding: 3px 5px 4px; }
 .panel-head { padding: 0 4px; }
-.panel-head > div { display: flex; align-items: center; gap: 8px; }
-.panel-head strong { color: #e3e4e8; font-size: 11px; font-weight: 650; }
+.panel-head > div { display: flex; align-items: baseline; gap: 7px; }
+.panel-head strong { color: #e7e8ec; font-size: 12px; font-weight: 650; letter-spacing: -0.1px; }
 .live-badge { display: flex; align-items: center; gap: 4px; color: #858994; font: 600 9px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
 .live-badge i { width: 4px; height: 4px; border-radius: 50%; background: var(--status); box-shadow: none; animation: pulse 1.8s ease infinite; }
 
@@ -567,41 +567,49 @@ button { font: inherit; }
 .task-row,
 .task-empty {
   position: relative;
-  height: 72px;
+  height: 84px;
   display: grid;
   align-items: center;
   margin-top: 2px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.052);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .task-row {
-  grid-template-columns: 4px minmax(0, 1fr) 68px;
+  grid-template-columns: 3px minmax(0, 1fr);
   gap: 8px;
-  padding: 5px 7px 6px;
+  padding: 6px 8px 7px;
   animation: taskEnter 280ms ease both;
   animation-delay: calc(var(--row-index) * 45ms);
 }
 
-.task-signal { width: 3px; height: 38px; border-radius: 2px; background: var(--status); box-shadow: none; animation: taskSignal 1.8s ease infinite; }
-.task-copy { min-width: 0; display: grid; gap: 3px; }
-.task-name { overflow: hidden; color: #ececef; font-size: 11.5px; font-weight: 650; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
-.task-context { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 5px; margin: 0; }
-.task-context b { color: #858994; font: 650 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; letter-spacing: 0.035em; }
-.task-context span { overflow: hidden; color: #bec1c9; font-size: 9.5px; line-height: 1.05; text-overflow: ellipsis; white-space: nowrap; }
-.task-activity b { color: var(--status); }
-.task-reply span { color: #9da9c5; }
+.task-signal { width: 3px; height: 46px; border-radius: 2px; background: var(--status); box-shadow: none; animation: taskSignal 1.8s ease infinite; }
+.task-copy { min-width: 0; display: grid; grid-template-rows: 15px 15px 14px 11px; gap: 2px; }
+.task-heading { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.task-name { min-width: 0; flex: 1 1 auto; overflow: hidden; color: #ececef; font-size: 11.5px; font-weight: 650; line-height: 1.1; letter-spacing: -0.1px; text-overflow: ellipsis; white-space: nowrap; }
+.task-state { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; max-width: 76px; padding: 2px 5px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--status) 24%, transparent); border-radius: 4px; color: var(--status); background: color-mix(in srgb, var(--status) 7%, transparent); }
+.task-state i { flex: 0 0 auto; width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.task-state b { overflow: hidden; font: 650 8.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.task-line { min-width: 0; display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 6px; margin: 0; }
+.task-activity { grid-template-columns: 38px minmax(0, 1fr) auto; }
+.task-line-label { display: inline-flex; align-items: center; gap: 5px; color: #878c97; font: 600 8.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.task-line-label i { flex: 0 0 auto; width: 4px; height: 4px; border-radius: 50%; background: #6f7480; }
+.task-line-label b { font: inherit; }
+.task-line-text { overflow: hidden; color: #c6c9d1; font-size: 9.5px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+.task-activity .task-line-label { color: var(--status); }
+.task-activity .task-line-label i { background: currentColor; box-shadow: 0 0 0 3px color-mix(in srgb, var(--status) 10%, transparent); animation: pulse 1.8s ease infinite; }
+.task-reply .task-line-label i { width: 5px; height: 5px; border: 0; border-bottom: 1px solid currentColor; border-left: 1px solid currentColor; border-radius: 0 0 0 2px; background: transparent; }
+.task-reply .task-line-text { color: #9da9c5; }
 .task-reply.is-empty { opacity: 0.48; }
-.task-meta { min-width: 0; display: flex; align-items: center; gap: 7px; color: #747985; font: 600 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
-.task-meta > * { flex: 0 0 auto; }
-.task-meta > * + * { position: relative; }
-.task-meta > * + *::before { position: absolute; left: -4px; color: #4e535e; content: "·"; }
-.task-workspace { min-width: 0; max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-meta code { color: #747f98; font: inherit; }
-.task-metrics { align-self: stretch; display: grid; grid-template-rows: auto 1fr auto; justify-items: end; padding: 1px 0 2px; font-variant-numeric: tabular-nums; }
-.task-metrics strong { max-width: 68px; overflow: hidden; color: var(--status); font: 650 9px/1 "Segoe UI Variable", "Segoe UI", sans-serif; text-overflow: ellipsis; white-space: nowrap; }
-.task-elapsed { align-self: center; color: #a5a9b2; font: 650 11px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
-.task-updated { color: #707581; font: 600 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; white-space: nowrap; }
+.task-duration { display: inline-flex; align-items: baseline; gap: 4px; color: #747985; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.task-duration b { font: 600 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.task-elapsed { color: #b6bac4; font: 650 9.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.task-meta { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 7px; color: #747985; font: 600 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+.task-workspace { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-started, .task-meta code, .task-updated { white-space: nowrap; }
+.task-meta code { color: #78849f; font: inherit; }
+.task-updated { color: #858b97; }
 .task-track { position: absolute; right: 6px; bottom: 2px; left: 11px; height: 1px; overflow: hidden; background: rgba(255, 255, 255, 0.05); }
 .task-track i {
   position: absolute;
