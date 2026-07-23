@@ -17,6 +17,7 @@ let gesture = null;
 let activationTimer = null;
 let lastActivationAt = 0;
 let powerSaving = false;
+let expansionSequence = 0;
 const DOUBLE_CLICK_MS = 320;
 
 const PET_ACTIONS = {
@@ -77,9 +78,7 @@ const elements = {
   elapsed: document.getElementById("elapsed"),
   taskCount: document.getElementById("taskCount"),
   taskList: document.getElementById("taskList"),
-  workspace: document.getElementById("workspace"),
   compactWorkspace: document.getElementById("compactWorkspace"),
-  events: document.getElementById("events"),
   cpuValue: document.getElementById("cpuValue"),
   memoryValue: document.getElementById("memoryValue"),
   quotaMetric: document.getElementById("quotaMetric"),
@@ -114,11 +113,26 @@ function compactPath(value = "") {
   return parts.slice(-2).join(" / ").toUpperCase();
 }
 
-function eventTime(timestamp) {
-  const seconds = Math.max(0, Math.floor((Date.now() - Number(timestamp || Date.now())) / 1000));
+function formatClock(timestamp = 0) {
+  const date = new Date(Number(timestamp) || 0);
+  if (!Number(timestamp) || !Number.isFinite(date.getTime())) return "--:--";
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function relativeAge(timestamp = 0) {
+  const numeric = Number(timestamp) || 0;
+  if (!numeric) return "--";
+  const seconds = Math.max(0, Math.floor((Date.now() - numeric) / 1000));
   if (seconds < 4) return "NOW";
   if (seconds < 60) return `${seconds}S`;
-  return `${Math.floor(seconds / 60)}M`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}M`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}H`;
+  return `${Math.floor(seconds / 86400)}D`;
+}
+
+function shortThreadId(value = "") {
+  const compact = String(value).replace(/[^a-z0-9]/gi, "").toUpperCase();
+  return compact ? compact.slice(0, 8) : "LOCAL";
 }
 
 function quotaWindowLabel(minutes = 0) {
@@ -175,21 +189,6 @@ function renderQuota(quota) {
   island.dataset.quota = !available ? "unknown" : remaining <= 20 ? "low" : "normal";
 }
 
-function renderEvents(events = []) {
-  elements.events.replaceChildren();
-  const source = events.length ? events.slice(0, 3) : [{ label: "等待 Codex 事件", timestamp: Date.now() }];
-  source.forEach((event) => {
-    const item = document.createElement("li");
-    const dot = document.createElement("i");
-    const label = document.createElement("span");
-    const time = document.createElement("time");
-    label.textContent = event.label;
-    time.textContent = eventTime(event.timestamp);
-    item.append(dot, label, time);
-    elements.events.append(item);
-  });
-}
-
 function currentTasks(state) {
   const tasks = Array.isArray(state?.tasks) ? state.tasks : [];
   if (tasks.length) return tasks;
@@ -202,7 +201,10 @@ function currentTasks(state) {
       detail: state.detail,
       progress: state.progress,
       startedAt: state.startedAt,
+      lastEventAt: state.lastEventAt,
       workspace: state.workspace,
+      latestReply: state.latestReply,
+      replyAt: state.replyAt,
     }];
   }
   return [];
@@ -211,7 +213,19 @@ function currentTasks(state) {
 function renderTasks(state) {
   const tasks = currentTasks(state);
   const signature = tasks
-    .map((task) => [task.id, task.task, task.mode, task.phase, task.detail, task.progress].join("~"))
+    .map((task) => [
+      task.id,
+      task.task,
+      task.mode,
+      task.phase,
+      task.detail,
+      task.progress,
+      task.workspace,
+      task.startedAt,
+      task.lastEventAt,
+      task.latestReply,
+      task.replyAt,
+    ].join("~"))
     .join("|");
   const nextCount = Math.max(1, tasks.length);
   elements.taskCount.textContent = String(tasks.length);
@@ -237,7 +251,10 @@ function renderTasks(state) {
     item.className = "task-row";
     item.dataset.mode = task.mode || "thinking";
     item.dataset.startedAt = String(task.startedAt || 0);
+    item.dataset.lastEventAt = String(task.lastEventAt || 0);
+    item.dataset.replyAt = String(task.replyAt || 0);
     item.style.setProperty("--row-index", index);
+    item.title = task.task || "Codex 任务";
 
     const signal = document.createElement("i");
     signal.className = "task-signal";
@@ -245,34 +262,62 @@ function renderTasks(state) {
     const copy = document.createElement("div");
     copy.className = "task-copy";
     const title = document.createElement("strong");
+    title.className = "task-name";
     title.textContent = task.task || "Codex 任务";
     title.title = task.task || "";
-    const workspace = document.createElement("span");
-    workspace.textContent = compactPath(task.workspace);
-    copy.append(title, workspace);
 
-    const phase = document.createElement("div");
-    phase.className = "task-phase";
-    const phaseName = document.createElement("strong");
-    phaseName.textContent = task.phase || "运行中";
-    const phaseDetail = document.createElement("span");
-    phaseDetail.textContent = task.detail || "";
-    phase.append(phaseName, phaseDetail);
+    const activity = document.createElement("p");
+    activity.className = "task-context task-activity";
+    const activityLabel = document.createElement("b");
+    activityLabel.textContent = "NOW";
+    const activityText = document.createElement("span");
+    activityText.textContent = task.detail || "正在等待任务事件";
+    activityText.title = task.detail || "";
+    activity.append(activityLabel, activityText);
+
+    const reply = document.createElement("p");
+    reply.className = "task-context task-reply";
+    const replyLabel = document.createElement("b");
+    replyLabel.textContent = "REPLY";
+    const replyText = document.createElement("span");
+    replyText.textContent = task.latestReply || "尚无可见回复";
+    replyText.title = task.latestReply || "";
+    if (!task.latestReply) reply.classList.add("is-empty");
+    reply.append(replyLabel, replyText);
+
+    const meta = document.createElement("div");
+    meta.className = "task-meta";
+    const workspace = document.createElement("span");
+    workspace.className = "task-workspace";
+    workspace.textContent = compactPath(task.workspace);
+    workspace.title = task.workspace || "";
+    const started = document.createElement("time");
+    started.textContent = `START ${formatClock(task.startedAt)}`;
+    started.dateTime = task.startedAt ? new Date(task.startedAt).toISOString() : "";
+    const thread = document.createElement("code");
+    thread.textContent = `#${shortThreadId(task.id)}`;
+    thread.title = task.id || "本地任务";
+    meta.append(workspace, started, thread);
+    copy.append(title, activity, reply, meta);
 
     const metrics = document.createElement("div");
     metrics.className = "task-metrics";
+    const phaseName = document.createElement("strong");
+    phaseName.textContent = task.phase || "运行中";
     const elapsed = document.createElement("time");
+    elapsed.className = "task-elapsed";
     elapsed.textContent = formatTime(task.elapsedSeconds);
-    const activity = document.createElement("b");
-    activity.textContent = task.mode === "waiting" ? "WAIT" : "LIVE";
-    metrics.append(elapsed, activity);
+    const updated = document.createElement("span");
+    updated.className = "task-updated";
+    updated.textContent = `UPDATE ${relativeAge(task.lastEventAt)}`;
+    metrics.append(phaseName, elapsed, updated);
 
     const track = document.createElement("span");
     track.className = "task-track";
     const fill = document.createElement("i");
     track.append(fill);
 
-    item.append(signal, copy, phase, metrics, track);
+    item.append(signal, copy, metrics, track);
     elements.taskList.append(item);
   });
 }
@@ -341,13 +386,11 @@ function render(state) {
   elements.taskTitle.title = latestContext;
   elements.elapsed.textContent = formatTime(state.elapsedSeconds);
   const workspaceLabel = compactPath(state.workspace);
-  elements.workspace.textContent = workspaceLabel;
   elements.compactWorkspace.textContent = workspaceLabel;
   elements.compactWorkspace.title = state.workspace || "";
   renderQuota(state.quota);
   animateStateChange(mode, progress);
   renderTasks(state);
-  renderEvents(state.events);
 }
 
 function renderSystem(state) {
@@ -367,11 +410,34 @@ function renderSystem(state) {
   island.dataset.systemLoad = cpu >= 85 || memory >= 90 ? "high" : "normal";
 }
 
+function waitForMotion(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 async function setExpanded(value) {
-  expanded = Boolean(value);
-  island.dataset.expanded = String(expanded);
-  primary.setAttribute("aria-expanded", String(expanded));
-  await window.lumo.resize(expanded, renderedTaskCount, "tasks");
+  const target = Boolean(value);
+  if (target === expanded && !island.dataset.transition) return;
+  const sequence = ++expansionSequence;
+  expanded = target;
+  primary.setAttribute("aria-expanded", String(target));
+
+  if (target) {
+    island.dataset.transition = "opening";
+    await window.lumo.resize(true, renderedTaskCount, "tasks");
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (sequence !== expansionSequence) return;
+    island.dataset.expanded = "true";
+    await waitForMotion(320);
+  } else {
+    island.dataset.transition = "closing";
+    await waitForMotion(120);
+    if (sequence !== expansionSequence) return;
+    island.dataset.expanded = "false";
+    await window.lumo.resize(false, renderedTaskCount, "tasks");
+    await waitForMotion(250);
+  }
+
+  if (sequence === expansionSequence) delete island.dataset.transition;
 }
 
 function isInteractive(target) {
@@ -494,8 +560,10 @@ setInterval(() => {
   document.querySelectorAll(".task-row").forEach((row) => {
     const startedAt = Number(row.dataset.startedAt || 0);
     const taskElapsed = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
-    const time = row.querySelector(".task-metrics time");
+    const time = row.querySelector(".task-elapsed");
     if (time) time.textContent = formatTime(taskElapsed);
+    const updated = row.querySelector(".task-updated");
+    if (updated) updated.textContent = `UPDATE ${relativeAge(Number(row.dataset.lastEventAt || 0))}`;
   });
   if (latestSystem?.updatedAt) {
     const age = Math.max(0, Math.floor((Date.now() - latestSystem.updatedAt) / 1000));

@@ -167,11 +167,56 @@ function setBoundsInternally(bounds, animate = false) {
   if (!mainWindow) return;
   clearInterval(topAnimationTimer);
   topAnimationTimer = null;
+  const startBounds = mainWindow.getBounds();
+  const targetBounds = {
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: Math.round(bounds.width),
+    height: Math.round(bounds.height),
+  };
   internalMove = true;
-  mainWindow.setBounds(bounds, animate);
-  setTimeout(() => {
-    internalMove = false;
-  }, animate ? 260 : 60);
+  if (!animate) {
+    mainWindow.setBounds(targetBounds, false);
+    setTimeout(() => {
+      internalMove = false;
+    }, 60);
+    return;
+  }
+
+  const duration = targetBounds.height >= startBounds.height ? 300 : 240;
+  const startedAt = Date.now();
+  topAnimationTimer = setInterval(() => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      clearInterval(topAnimationTimer);
+      topAnimationTimer = null;
+      internalMove = false;
+      return;
+    }
+    const raw = Math.min(1, (Date.now() - startedAt) / duration);
+    const eased = targetBounds.height >= startBounds.height
+      ? 1 - Math.pow(1 - raw, 4)
+      : raw * raw * (3 - 2 * raw);
+    const frame = {};
+    for (const key of ["x", "y", "width", "height"]) {
+      frame[key] = Math.round(startBounds[key] + (targetBounds[key] - startBounds[key]) * eased);
+    }
+    try {
+      mainWindow.setBounds(frame, false);
+    } catch {
+      clearInterval(topAnimationTimer);
+      topAnimationTimer = null;
+      internalMove = false;
+      return;
+    }
+    if (raw >= 1) {
+      clearInterval(topAnimationTimer);
+      topAnimationTimer = null;
+      mainWindow.setBounds(targetBounds, false);
+      setTimeout(() => {
+        internalMove = false;
+      }, 40);
+    }
+  }, 16);
 }
 
 function sendDockMotion(phase) {

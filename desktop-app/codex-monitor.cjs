@@ -45,6 +45,12 @@ function shortTaskTitle(text, fallback = "正在处理 Codex 任务") {
   return clean.length > 48 ? `${clean.slice(0, 48)}…` : clean;
 }
 
+function shortReply(text, fallback = "Codex 发来新回复") {
+  const clean = stripInjectedContext(text);
+  if (!clean) return fallback;
+  return clean.length > 120 ? `${clean.slice(0, 120)}…` : clean;
+}
+
 function extractMessageText(payload) {
   if (!Array.isArray(payload?.content)) return "";
   return payload.content
@@ -215,6 +221,8 @@ function taskSummaryFromEvents(events, options = {}) {
     lastEventAt: startedAt,
     workspace: options.workspace || "",
     thinkingStep: 0,
+    latestReply: "",
+    replyAt: 0,
   };
 
   return advanceTaskSummary(task, events.slice(lastStart + 1));
@@ -233,9 +241,11 @@ function advanceTaskSummary(task, events) {
     if (event.type === "session_meta") {
       task.workspace = payload.cwd || task.workspace;
     } else if (type === "agent_message") {
+      const latestReply = shortReply(payload.message);
       task.mode = "reply";
       task.phase = "有新回复";
-      task.detail = shortTaskTitle(payload.message, "Codex 发来新回复");
+      task.detail = latestReply;
+      task.latestReply = latestReply;
       task.replyAt = timestamp;
     } else if (type === "message" && payload.role === "user") {
       task.task = shortTaskTitle(extractMessageText(payload), task.task);
@@ -718,9 +728,10 @@ class CodexMonitor extends EventEmitter {
       patch.detail = thinkingStage(patch.thinkingStep);
       patch.progress = Math.min(88, Math.max(this.state.progress + 1, 16));
     } else if (type === "agent_message") {
+      const latestReply = shortReply(payload.message);
       patch.mode = "reply";
       patch.phase = "有新回复";
-      patch.latestReply = shortTaskTitle(payload.message, "Codex 发来新回复");
+      patch.latestReply = latestReply;
       patch.detail = patch.latestReply;
       patch.replyAt = eventTime;
       patch.replyFresh = !quiet;

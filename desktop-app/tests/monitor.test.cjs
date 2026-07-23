@@ -76,6 +76,10 @@ test("summarizes a running task from the latest turn", () => {
     },
     {
       timestamp: "2026-07-21T03:00:02.000Z",
+      payload: { type: "agent_message", message: "正在调整机器人动作和任务状态展示" },
+    },
+    {
+      timestamp: "2026-07-21T03:00:03.000Z",
       payload: { type: "custom_tool_call", name: "wait" },
     },
   ];
@@ -84,6 +88,9 @@ test("summarizes a running task from the latest turn", () => {
   assert.equal(task.task, "增强任务动效");
   assert.equal(task.mode, "waiting");
   assert.equal(task.phase, "等待中");
+  assert.equal(task.detail, "等待后台任务");
+  assert.equal(task.latestReply, "正在调整机器人动作和任务状态展示");
+  assert.equal(task.replyAt, Date.parse("2026-07-21T03:00:02.000Z"));
 });
 
 test("excludes completed and aborted turns from running tasks", () => {

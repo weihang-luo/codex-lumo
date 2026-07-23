@@ -7,6 +7,7 @@ const WINDOW_SCALES = Object.freeze({
 const DEFAULT_WINDOW_SIZE = "medium";
 const DEFAULT_REVEAL_MS = 5000;
 const MAX_VISIBLE_TASKS = 5;
+const TASK_ROW_STEP = 76;
 const TOP_DOCK_GAP = 12;
 const REVEAL_OPTIONS = Object.freeze([0, 3000, 5000, 8000]);
 
@@ -23,15 +24,16 @@ function profileFor(value) {
   const name = normalizeWindowSize(value);
   const scale = WINDOW_SCALES[name];
   const readableSmall = name === "small";
+  const compactWidth = Math.round(450 * scale);
   return {
     name,
     scale,
     contentScale: readableSmall ? 1 : scale,
     compact: {
-      width: Math.round(450 * scale),
+      width: compactWidth,
       height: Math.round(66 * scale),
     },
-    expandedWidth: readableSmall ? 500 : Math.round(550 * scale),
+    expandedWidth: compactWidth,
     settingsHeight: readableSmall ? 340 : Math.round(340 * scale),
   };
 }
@@ -44,7 +46,7 @@ function expandedSize(value, taskCount = 1, view = "tasks") {
   const visibleRows = Math.max(1, Math.min(MAX_VISIBLE_TASKS, Number(taskCount) || 1));
   return {
     width: profile.expandedWidth,
-    height: Math.round((270 + visibleRows * 46) * profile.contentScale),
+    height: Math.round((202 + visibleRows * TASK_ROW_STEP) * profile.contentScale),
   };
 }
 
@@ -53,6 +55,7 @@ module.exports = {
   DEFAULT_WINDOW_SIZE,
   MAX_VISIBLE_TASKS,
   REVEAL_OPTIONS,
+  TASK_ROW_STEP,
   TOP_DOCK_GAP,
   WINDOW_SCALES,
   expandedSize,
