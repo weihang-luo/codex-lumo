@@ -2,7 +2,7 @@
 
 Codex Lumo 是一个 Windows 桌面悬浮伴侣，用紧凑的灵动窗展示本机 Codex 任务、最近回复、运行状态、额度以及 CPU 和内存占用。
 
-![Codex Lumo](desktop-app/assets/lumo.png)
+![Codex Lumo 运行截图](docs/codex-lumo-running.png)
 
 ## 功能
 
