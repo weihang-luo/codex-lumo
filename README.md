@@ -1,98 +1,48 @@
-# vinext-starter
+# Codex Lumo
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Codex Lumo 是一个 Windows 桌面悬浮伴侣，用紧凑的灵动窗展示本机 Codex 任务、最近回复、运行状态、额度以及 CPU 和内存占用。
 
-## Prerequisites
+![Codex Lumo](desktop-app/assets/lumo.png)
 
-- Node.js `>=22.13.0`
+## 功能
 
-## Quick Start
+- 自动读取本机 Codex 会话与任务事件，不上传日志。
+- 展示所有正在运行的任务、当前动作、最近可见回复、工作区与运行时间。
+- 只有收到可见回复时才自动弹出，思考摘要和工具过程保持静默。
+- 支持贴顶自动隐藏、全窗口拖动、双击打开 Codex 和托盘设置。
+- 内置多状态宠物动画，并在隐藏时降低刷新和采样频率。
+- 提供安装版与免安装便携版。
 
-```bash
+## 下载
+
+从 [GitHub Releases](https://github.com/weihang-luo/codex-lumo/releases/latest) 下载最新版本：
+
+- `Codex-Lumo-Setup-*-x64.exe`：Windows 安装版。
+- `Codex-Lumo-Portable-*-x64.exe`：免安装便携版。
+
+## 本地开发
+
+需要 Node.js 22 或更高版本。
+
+```powershell
+cd desktop-app
 npm install
-npm run dev
-npm run build
+npm test
+npm start
 ```
 
-This starter does not use `wrangler.jsonc`.
+构建 Windows 安装包：
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```powershell
+npm run dist
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+生成文件位于 `desktop-app/release/`。
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+## 隐私
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+桌面应用只读访问 `%USERPROFILE%\.codex\sessions` 和本机 Codex 日志数据库。任务解析、系统状态采样和界面渲染均在本机完成。
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+## 许可证
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+项目采用 [MIT License](LICENSE)。宠物形象改编自 MIT 许可的 React Kawaii `Cyborg`，第三方许可与来源见 `desktop-app/assets/pet/`。
