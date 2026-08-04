@@ -4,8 +4,10 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {
+  advanceDelegations,
   CodexMonitor,
   eventSummary,
+  extractOpenCodeInvocations,
   labelForTool,
   parseJsonLines,
   quotaFromRateLimits,
@@ -15,6 +17,57 @@ const {
   taskSummaryFromEvents,
   thinkingStage,
 } = require("../codex-monitor.cjs");
+
+function openCodeCall(callId = "call-opencode") {
+  const command = `$taskPrompt = @'
+Implement the bounded parser fix and report changed files.
+'@; opencode run --model opencode/deepseek-v4-flash-free --auto $taskPrompt`;
+  return {
+    timestamp: "2026-08-04T05:00:00.000Z",
+    type: "response_item",
+    payload: {
+      type: "function_call",
+      name: "exec_command",
+      call_id: callId,
+      arguments: JSON.stringify({ command, workdir: "E:\\Project" }),
+    },
+  };
+}
+
+test("extracts OpenCode delegation metadata only from executable command fields", () => {
+  const [delegation] = extractOpenCodeInvocations(openCodeCall());
+  assert.equal(delegation.model, "opencode/deepseek-v4-flash-free");
+  assert.equal(delegation.directory, "E:\\Project");
+  assert.match(delegation.title, /bounded parser fix/i);
+  assert.equal(delegation.status, "running");
+
+  const patchText = {
+    payload: { type: "custom_tool_call", name: "apply_patch", input: "Document opencode run --model example" },
+  };
+  assert.deepEqual(extractOpenCodeInvocations(patchText), []);
+});
+
+test("tracks OpenCode transport sessions and explicit completion", () => {
+  const task = { delegations: [], lastEventAt: 0 };
+  advanceDelegations(task, openCodeCall("call-start"));
+  advanceDelegations(task, {
+    timestamp: "2026-08-04T05:00:01.000Z",
+    payload: { type: "function_call_output", call_id: "call-start", output: "Script running with cell ID cell-42" },
+  });
+  assert.equal(task.delegations[0].transportId, "cell-42");
+  assert.equal(task.delegations[0].status, "running");
+
+  advanceDelegations(task, {
+    timestamp: "2026-08-04T05:00:02.000Z",
+    payload: { type: "function_call", call_id: "call-wait", arguments: JSON.stringify({ cell_id: "cell-42" }) },
+  });
+  advanceDelegations(task, {
+    timestamp: "2026-08-04T05:00:03.000Z",
+    payload: { type: "function_call_output", call_id: "call-wait", output: "Process exited with code 0" },
+  });
+  assert.equal(task.delegations[0].status, "completed");
+  assert.equal(task.delegations[0].completedAt, Date.parse("2026-08-04T05:00:03.000Z"));
+});
 
 test("strips ambient browser context from task titles", () => {
   const source = `<in-app-browser-context source="ambient-ui-state">hidden</in-app-browser-context>
@@ -247,4 +300,21 @@ test("lists every running session even when a task start is deep in a large log"
 
   assert.equal(tasks.length, 2);
   assert.deepEqual(new Set(tasks.map((task) => task.task)), new Set(["大型日志任务", "并行任务"]));
+});
+
+test("drops abandoned start-only sessions instead of counting phantom parent tasks", (context) => {
+  const codexRoot = fs.mkdtempSync(path.join(os.tmpdir(), "lumo-start-only-"));
+  const sessionsRoot = path.join(codexRoot, "sessions", "2026", "08", "04");
+  fs.mkdirSync(sessionsRoot, { recursive: true });
+  context.after(() => fs.rmSync(codexRoot, { recursive: true, force: true }));
+  const filePath = path.join(
+    sessionsRoot,
+    "rollout-2026-08-04T02-00-00-019f8270-6c25-74a1-9f81-d9c85037ef13.jsonl",
+  );
+  const oldStart = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  fs.writeFileSync(filePath, `${JSON.stringify({ timestamp: oldStart, payload: { type: "task_started" } })}\n`, "utf8");
+  const stat = fs.statSync(filePath);
+  const monitor = new CodexMonitor({ codexRoot });
+  const tasks = monitor.scanRunningTasks([{ path: filePath, size: stat.size, mtimeMs: stat.mtimeMs }]);
+  assert.equal(tasks.length, 0);
 });

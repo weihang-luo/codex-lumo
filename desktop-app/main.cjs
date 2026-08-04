@@ -47,6 +47,7 @@ let hiddenAtTop = false;
 let windowHovered = false;
 let windowExpanded = false;
 let windowView = "tasks";
+let windowDelegationRows = 0;
 let internalMove = false;
 let revealUntil = 0;
 const progressRevealPolicy = new ProgressRevealPolicy();
@@ -489,7 +490,7 @@ function updateSettings(patch = {}) {
   saveSettings();
   if (settings.windowSize !== previousSize && mainWindow) {
     const taskCount = Math.max(1, latestState?.tasks?.length || 1);
-    resizeWindow(windowExpanded, taskCount, windowView);
+    resizeWindow(windowExpanded, taskCount, windowView, windowDelegationRows);
   }
   broadcastSettings();
   rebuildTrayMenu();
@@ -583,13 +584,14 @@ function setLaunchAtLogin(enabled) {
   return settings.launchAtLogin;
 }
 
-function resizeWindow(expanded, taskCount = 1, view = "tasks") {
+function resizeWindow(expanded, taskCount = 1, view = "tasks", delegationRows = 0) {
   if (!mainWindow) return false;
   const next = expanded
-    ? expandedSize(settings.windowSize, taskCount, view)
+    ? expandedSize(settings.windowSize, taskCount, view, delegationRows)
     : { ...profileFor(settings.windowSize).compact };
   windowExpanded = Boolean(expanded);
   windowView = view === "settings" ? "settings" : "tasks";
+  windowDelegationRows = Math.max(0, Number(delegationRows) || 0);
   const current = mainWindow.getBounds();
   const display = screen.getDisplayMatching(current).workArea;
   next.height = Math.min(next.height, display.height - 20);
@@ -623,7 +625,8 @@ async function openCodex() {
 function registerIpc() {
   ipcMain.handle("lumo:get-state", () => latestState);
   ipcMain.handle("lumo:get-system", () => latestSystem);
-  ipcMain.handle("lumo:resize", (_event, expanded, taskCount, view) => resizeWindow(expanded, taskCount, view));
+  ipcMain.handle("lumo:resize", (_event, expanded, taskCount, view, delegationRows) =>
+    resizeWindow(expanded, taskCount, view, delegationRows));
   ipcMain.handle("lumo:hide", () => mainWindow?.hide());
   ipcMain.handle("lumo:open-codex", openCodex);
   ipcMain.handle("lumo:quit", () => {

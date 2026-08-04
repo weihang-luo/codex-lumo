@@ -579,13 +579,15 @@ button { font: inherit; }
 .task-row {
   grid-template-columns: 3px minmax(0, 1fr);
   gap: 8px;
+  height: calc(84px + var(--delegation-rows, 0) * 38px);
   padding: 6px 8px 7px;
   animation: taskEnter 280ms ease both;
   animation-delay: calc(var(--row-index) * 45ms);
 }
+.task-row.is-refresh { animation: none; }
 
-.task-signal { width: 3px; height: 46px; border-radius: 2px; background: var(--status); box-shadow: none; animation: taskSignal 1.8s ease infinite; }
-.task-copy { min-width: 0; display: grid; grid-template-rows: 15px 15px 14px 11px; gap: 2px; }
+.task-signal { align-self: start; width: 3px; height: 46px; margin-top: 12px; border-radius: 2px; background: var(--status); box-shadow: none; animation: taskSignal 1.8s ease infinite; }
+.task-copy { min-width: 0; display: grid; grid-template-rows: 15px 15px 14px 11px auto; gap: 2px; }
 .task-heading { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .task-name { min-width: 0; flex: 1 1 auto; overflow: hidden; color: #ececef; font-size: 11.5px; font-weight: 650; line-height: 1.1; letter-spacing: -0.1px; text-overflow: ellipsis; white-space: nowrap; }
 .task-state { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; max-width: 76px; padding: 2px 5px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--status) 24%, transparent); border-radius: 4px; color: var(--status); background: color-mix(in srgb, var(--status) 7%, transparent); }
@@ -610,6 +612,22 @@ button { font: inherit; }
 .task-started, .task-meta code, .task-updated { white-space: nowrap; }
 .task-meta code { color: #78849f; font: inherit; }
 .task-updated { color: #858b97; }
+.task-delegations { min-width: 0; display: grid; gap: 3px; margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(145, 167, 216, 0.12); }
+.task-delegation { min-width: 0; height: 31px; display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 2px 4px; border-radius: 5px; background: rgba(145, 167, 216, 0.045); }
+.delegation-provider { width: 23px; height: 18px; display: grid; place-items: center; border: 1px solid rgba(145, 167, 216, 0.22); border-radius: 4px; color: #a9c1f4; background: rgba(145, 167, 216, 0.08); font: 700 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; letter-spacing: 0.04em; }
+.delegation-copy { min-width: 0; display: grid; gap: 2px; }
+.delegation-copy b, .delegation-copy em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.delegation-copy b { color: #d8dbe3; font: 620 9px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.delegation-copy em { color: #858b99; font: normal 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.delegation-meta { display: grid; grid-template-columns: auto auto; align-items: center; justify-items: end; gap: 2px 6px; color: #737985; font-variant-numeric: tabular-nums; }
+.delegation-meta code { max-width: 86px; overflow: hidden; color: #7f8ca9; font: 600 6.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; text-overflow: ellipsis; white-space: nowrap; }
+.delegation-meta small { color: #6f7480; font: 600 6.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; white-space: nowrap; }
+.delegation-meta strong { color: #8eb0f3; font: 650 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.delegation-meta time { color: #a9adb7; font: 650 8px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.task-delegation[data-status="completed"] .delegation-provider,
+.task-delegation[data-status="completed"] .delegation-meta strong { color: #8fc9ad; border-color: rgba(143, 201, 173, 0.18); }
+.task-delegation[data-status="failed"] .delegation-provider,
+.task-delegation[data-status="failed"] .delegation-meta strong { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 24%, transparent); }
 .task-track { position: absolute; right: 6px; bottom: 2px; left: 11px; height: 1px; overflow: hidden; background: rgba(255, 255, 255, 0.05); }
 .task-track i {
   position: absolute;
@@ -738,7 +756,6 @@ footer { display: flex; align-items: center; justify-content: space-between; col
 .island[data-action="spin"] .bot-eyes-dot { animation: kawaiiSpinFace 500ms steps(2, end) infinite; }
 
 .island[data-system-load="high"] .system-strip::after { background: linear-gradient(90deg, transparent, rgba(255, 107, 120, 0.55), transparent); }
-.island.state-pulse { animation: statePulse 680ms ease; }
 .island[data-dock-motion="showing"] .primary { animation: dockContentReveal 300ms cubic-bezier(0.16, 1, 0.3, 1); }
 .island[data-dock-motion="hiding"] .primary { animation: dockContentHide 360ms cubic-bezier(0.65, 0, 0.35, 1); }
 
@@ -856,7 +873,6 @@ footer { display: flex; align-items: center; justify-content: space-between; col
 @keyframes hudSweep { from { transform: translateX(0) skewX(-18deg); } to { transform: translateX(850%) skewX(-18deg); } }
 @keyframes signalShift { 0%, 100% { transform: translateX(0); opacity: 0.12; } 50% { transform: translateX(-8px); opacity: 0.48; } }
 @keyframes dataRail { from { background-position: 0 0; opacity: 0.18; } to { background-position: 18px 0; opacity: 0.48; } }
-@keyframes statePulse { 0%, 100% { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.075), inset 0 1px 0 rgba(255, 255, 255, 0.045); } 35% { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--status) 30%, rgba(255, 255, 255, 0.08)), inset 0 1px 0 rgba(255, 255, 255, 0.06); } }
 @keyframes taskEnter { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes taskSignal { 0%, 100% { transform: scaleY(0.45); opacity: 0.5; } 50% { transform: scaleY(1); opacity: 1; } }
 @keyframes dockContentReveal { from { opacity: 0.15; transform: translateY(-8px) scaleX(0.985); } to { opacity: 1; transform: translateY(0) scaleX(1); } }

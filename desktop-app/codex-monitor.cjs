@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { EventEmitter } = require("node:events");
+const { OpenCodeMonitor } = require("./opencode-monitor.cjs");
 
 let DatabaseSync = null;
 try {
@@ -16,6 +17,7 @@ const TASK_SCAN_CHUNK_BYTES = 512 * 1024;
 const QUOTA_SCAN_BYTES = 1024 * 1024;
 const TASK_START_NEEDLE = Buffer.from('"type":"task_started"');
 const RUNNING_TASK_STALE_MS = 12 * 60 * 60 * 1000;
+const START_ONLY_TASK_STALE_MS = 5 * 60 * 1000;
 const THINKING_STAGES = Object.freeze([
   "正在理解上下文",
   "正在拆解任务",
@@ -59,6 +61,224 @@ function extractMessageText(payload) {
     .join(" ");
 }
 
+function decodeCommandLiteral(token = "") {
+  const quote = token[0];
+  const body = token.slice(1, -1);
+  if (quote === '"') {
+    try {
+      return JSON.parse(token);
+    } catch {}
+  }
+  return body
+    .replace(/\\\\r\\\\n/g, "\n")
+    .replace(/\\\\n/g, "\n")
+    .replace(/\\\\r/g, "\n")
+    .replace(/\\\\t/g, "\t")
+    .replace(/\\\\([\\\\`'\"])/g, "$1");
+}
+
+function commandSegmentsFromToolCall(payload = {}) {
+  if (payload.type === "function_call") {
+    try {
+      const args = typeof payload.arguments === "string"
+        ? JSON.parse(payload.arguments)
+        : payload.arguments;
+      return [args?.command, args?.cmd].filter((value) => typeof value === "string");
+    } catch {
+      return [];
+    }
+  }
+  if (payload.type !== "custom_tool_call") return [];
+  const input = String(payload.input || "");
+  const segments = [];
+  const pattern = /\b(?:cmd|command)\s*:\s*(`(?:\\.|[^`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
+  let match;
+  while ((match = pattern.exec(input))) segments.push(decodeCommandLiteral(match[1]));
+  return segments;
+}
+
+function toolCallDirectory(payload = {}) {
+  if (payload.type === "function_call") {
+    try {
+      const args = typeof payload.arguments === "string" ? JSON.parse(payload.arguments) : payload.arguments;
+      return typeof args?.workdir === "string" ? args.workdir : "";
+    } catch {
+      return "";
+    }
+  }
+  const match = String(payload.input || "").match(/\bworkdir\s*:\s*(`(?:\\.|[^`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/);
+  return match ? decodeCommandLiteral(match[1]) : "";
+}
+
+function powershellPromptVariables(command = "") {
+  const prompts = new Map();
+  const patterns = [
+    /\$([A-Za-z_]\w*)\s*=\s*@'\s*\r?\n([\s\S]*?)\r?\n'@/g,
+    /\$([A-Za-z_]\w*)\s*=\s*@"\s*\r?\n([\s\S]*?)\r?\n"@/g,
+  ];
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(command))) prompts.set(match[1], match[2].trim());
+  }
+  return prompts;
+}
+
+function openCodeModel(commandLine = "") {
+  const match = commandLine.match(/(?:--model|-m)\s+(?:['"]([^'"]+)['"]|([^\s;]+))/i);
+  return (match?.[1] || match?.[2] || "OpenCode default").trim();
+}
+
+function delegatedTaskTitle(prompt = "") {
+  let value = String(prompt)
+    .replace(/[A-Za-z]:\\[^\s，。；]+/g, "当前工作区")
+    .replace(/\s+/g, " ")
+    .trim();
+  const explicit = value.match(/(?:子任务|任务)\s*[：:]\s*([^。；\n]+)/);
+  if (explicit?.[1]) value = explicit[1].trim();
+  return shortTaskTitle(value, "OpenCode 子任务");
+}
+
+function stripOpenCodeOptions(value = "") {
+  return String(value)
+    .replace(/(?:--model|-m)\s+(?:'[^']+'|"[^"]+"|\S+)/gi, " ")
+    .replace(/--variant\s+(?:'[^']+'|"[^"]+"|\S+)/gi, " ")
+    .replace(/(?:--auto|-c|--continue)\b/gi, " ")
+    .replace(/^\s*--\s*/, " ")
+    .trim();
+}
+
+function extractOpenCodeInvocations(event) {
+  const payload = event?.payload || {};
+  const type = eventType(event);
+  if (type !== "function_call" && type !== "custom_tool_call") return [];
+  const callId = String(payload.call_id || payload.id || "");
+  const directory = toolCallDirectory(payload);
+  const invocations = [];
+
+  for (const command of commandSegmentsFromToolCall(payload)) {
+    const prompts = powershellPromptVariables(command);
+    const hereStringRanges = [];
+    for (const pattern of [/@'[\s\S]*?'@/g, /@"[\s\S]*?"@/g]) {
+      let range;
+      while ((range = pattern.exec(command))) hereStringRanges.push([range.index, range.index + range[0].length]);
+    }
+    const invocation = /(?:^|[;\r\n])\s*(?:\$[A-Za-z_]\w*\s*=\s*)?&?\s*opencode(?:\.cmd|\.ps1)?\s+run\b([^\r\n;]*)/gi;
+    let match;
+    while ((match = invocation.exec(command))) {
+      if (hereStringRanges.some(([start, end]) => match.index >= start && match.index < end)) continue;
+      const tail = match[1] || "";
+      if (/^\s*--help\b/i.test(tail)) continue;
+      const references = [...tail.matchAll(/\$([A-Za-z_]\w*)/g)];
+      const variable = references.length ? references.at(-1)[1] : "";
+      let prompt = prompts.get(variable) || "";
+      if (!prompt) {
+        prompt = stripOpenCodeOptions(tail)
+          .replace(/^['"`]|['"`]$/g, "")
+          .trim();
+      }
+      invocations.push({
+        id: `${callId || "opencode"}:${invocations.length}`,
+        callIds: callId ? [callId] : [],
+        transportId: "",
+        provider: "OpenCode",
+        model: openCodeModel(tail),
+        title: delegatedTaskTitle(prompt),
+        prompt,
+        directory,
+        sessionId: "",
+        stage: "starting",
+        latestUpdate: "正在启动 OpenCode",
+        tokens: null,
+        status: "running",
+        startedAt: Date.parse(event?.timestamp || "") || Date.now(),
+        completedAt: 0,
+        lastEventAt: Date.parse(event?.timestamp || "") || Date.now(),
+      });
+    }
+  }
+  return invocations;
+}
+
+function toolOutputText(payload = {}) {
+  if (typeof payload.output === "string") return payload.output;
+  if (Array.isArray(payload.output)) {
+    return payload.output
+      .map((item) => item?.text || item?.input_text || "")
+      .filter(Boolean)
+      .join("\n");
+  }
+  return payload.output == null ? "" : JSON.stringify(payload.output);
+}
+
+function transportIdsFromText(text = "") {
+  const ids = new Set();
+  for (const pattern of [
+    /Script running with cell ID\s+([^\s"'}]+)/gi,
+    /["']?(?:session_id|cell_id)["']?\s*[:=]\s*["']?([A-Za-z0-9_-]+)/gi,
+  ]) {
+    let match;
+    while ((match = pattern.exec(String(text)))) ids.add(match[1]);
+  }
+  return [...ids];
+}
+
+function toolCallTransportIds(payload = {}) {
+  const text = payload.type === "function_call"
+    ? String(payload.arguments || "")
+    : String(payload.input || "");
+  return transportIdsFromText(text);
+}
+
+function advanceDelegations(task, event) {
+  task.delegations = Array.isArray(task.delegations) ? task.delegations : [];
+  const payload = event?.payload || {};
+  const type = eventType(event);
+  const timestamp = Date.parse(event?.timestamp || "") || task.lastEventAt || Date.now();
+  const callId = String(payload.call_id || payload.id || "");
+  const created = extractOpenCodeInvocations(event);
+  if (created.length) {
+    const existing = new Set(task.delegations.map((item) => item.id));
+    task.delegations.push(...created.filter((item) => !existing.has(item.id)));
+  }
+
+  if ((type === "function_call" || type === "custom_tool_call") && !created.length) {
+    const transportIds = toolCallTransportIds(payload);
+    if (transportIds.length && callId) {
+      for (const delegation of task.delegations) {
+        if (!transportIds.includes(String(delegation.transportId || ""))) continue;
+        delegation.callIds = [...new Set([...(delegation.callIds || []), callId])];
+        delegation.status = "running";
+        delegation.lastEventAt = timestamp;
+      }
+    }
+  }
+
+  if (type === "function_call_output" || type === "custom_tool_call_output") {
+    const output = toolOutputText(payload);
+    const transports = transportIdsFromText(output);
+    const running = transports.length > 0 || /script running|process is still running|session is still running/i.test(output);
+    const failed = payload.isError === true
+      || /Exit code:\s*[1-9]|Process exited with code\s+[1-9]|"exit_code"\s*:\s*[1-9]/i.test(output);
+    for (const delegation of task.delegations) {
+      if (!(delegation.callIds || []).includes(callId)) continue;
+      delegation.lastEventAt = timestamp;
+      if (running) {
+        delegation.status = "running";
+        delegation.transportId = transports[0] || delegation.transportId;
+      } else {
+        delegation.status = failed ? "failed" : "completed";
+        delegation.completedAt = timestamp;
+      }
+    }
+  }
+
+  return {
+    created: created.length,
+    running: task.delegations.filter((item) => item.status === "running").length,
+    failed: task.delegations.filter((item) => item.status === "failed").length,
+  };
+}
+
 function sessionIdFromPath(filePath) {
   const match = path.basename(filePath || "").match(/([0-9a-f]{8}-[0-9a-f-]{27,})\.jsonl$/i);
   return match ? match[1] : "";
@@ -83,6 +303,7 @@ function eventSummary(event) {
   if (inner === "agent_reasoning") return "分析任务";
   if (inner === "agent_message") return "Codex 发来回复";
   if (inner === "custom_tool_call" || inner === "function_call") {
+    if (extractOpenCodeInvocations(event).length) return "已委派 OpenCode 子任务";
     return labelForTool(event.payload.name);
   }
   if (inner === "custom_tool_call_output" || inner === "function_call_output") {
@@ -223,6 +444,7 @@ function taskSummaryFromEvents(events, options = {}) {
     thinkingStep: 0,
     latestReply: "",
     replyAt: 0,
+    delegations: [],
   };
 
   return advanceTaskSummary(task, events.slice(lastStart + 1));
@@ -234,6 +456,10 @@ function advanceTaskSummary(task, events) {
     const type = eventType(event);
     const timestamp = Date.parse(event?.timestamp || "") || task.lastEventAt;
     task.lastEventAt = Math.max(task.lastEventAt, timestamp);
+    const delegationUpdate = advanceDelegations(task, event);
+    const linkedDelegation = task.delegations.some((delegation) =>
+      (delegation.callIds || []).includes(String(payload.call_id || payload.id || "")),
+    );
 
     if (type === "task_complete" || type === "turn_complete" || type === "turn_completed" || type === "turn_aborted") {
       return null;
@@ -271,14 +497,27 @@ function advanceTaskSummary(task, events) {
       const waiting = /wait/i.test(payload.name || "");
       task.mode = waiting ? "waiting" : "working";
       task.phase = waiting ? "等待中" : "执行中";
-      task.detail = labelForTool(payload.name);
+      task.detail = delegationUpdate.created
+        ? `已委派 ${delegationUpdate.created} 个 OpenCode 子任务`
+        : linkedDelegation
+          ? "OpenCode 子任务运行中"
+          : labelForTool(payload.name);
       task.progress = Math.min(92, Math.max(task.progress + 3, 24));
     } else if (type === "custom_tool_call_output" || type === "function_call_output") {
-      const output = String(payload.output || "");
-      const failed = /Exit code:\s*[1-9]|failed|error/i.test(output);
+      const output = toolOutputText(payload);
+      const failed = payload.isError === true
+        || /Exit code:\s*[1-9]|Process exited with code\s+[1-9]|"exit_code"\s*:\s*[1-9]/i.test(output);
       task.mode = failed ? "error" : "working";
       task.phase = failed ? "调整中" : "执行中";
-      task.detail = failed ? "遇到问题，正在尝试其他方法" : "正在整理工具结果";
+      task.detail = linkedDelegation
+        ? delegationUpdate.failed
+          ? "OpenCode 子任务异常，正在检查结果"
+          : delegationUpdate.running
+            ? "OpenCode 子任务仍在运行"
+            : "OpenCode 子任务已返回结果"
+        : failed
+          ? "遇到问题，正在尝试其他方法"
+          : "正在整理工具结果";
       task.progress = Math.min(94, Math.max(task.progress + 1, 28));
     }
   }
@@ -355,6 +594,7 @@ class CodexMonitor extends EventEmitter {
     this.quotaFileCache = new Map();
     this.quotaRecords = new Map();
     this.runningTasks = [];
+    this.openCode = new OpenCodeMonitor({ dbPath: options.openCodeDbPath });
     this.state = {
       connection: "searching",
       mode: "offline",
@@ -370,6 +610,7 @@ class CodexMonitor extends EventEmitter {
       source: "本地会话日志",
       events: [],
       tasks: [],
+      delegations: [],
       thinkingStep: 0,
       latestReply: "",
       replyAt: 0,
@@ -398,6 +639,7 @@ class CodexMonitor extends EventEmitter {
       } catch {}
     }
     this.db = null;
+    this.openCode.close();
   }
 
   scheduleTimers() {
@@ -427,13 +669,25 @@ class CodexMonitor extends EventEmitter {
     const elapsedSeconds = this.state.startedAt
       ? Math.max(0, Math.floor((Date.now() - this.state.startedAt) / 1000))
       : 0;
+    const withElapsed = (delegation) => ({
+      ...delegation,
+      elapsedSeconds: delegation.startedAt
+        ? Math.max(0, Math.floor(((delegation.completedAt || Date.now()) - delegation.startedAt) / 1000))
+        : 0,
+    });
     const tasks = (this.state.tasks || []).map((task) => ({
       ...task,
       elapsedSeconds: task.startedAt
         ? Math.max(0, Math.floor((Date.now() - task.startedAt) / 1000))
         : 0,
+      delegations: (task.delegations || []).map(withElapsed),
     }));
-    return { ...this.state, elapsedSeconds, tasks };
+    return {
+      ...this.state,
+      elapsedSeconds,
+      delegations: (this.state.delegations || []).map(withElapsed),
+      tasks,
+    };
   }
 
   emitState(force = false) {
@@ -557,7 +811,7 @@ class CodexMonitor extends EventEmitter {
 
   scanRunningTasks(candidates) {
     const now = Date.now();
-    const tasks = [];
+    let tasks = [];
     const livePaths = new Set(candidates.map((file) => file.path));
 
     for (const file of candidates) {
@@ -586,13 +840,24 @@ class CodexMonitor extends EventEmitter {
               mtimeMs: file.mtimeMs,
             })
           : cached.summary
-            ? advanceTaskSummary({ ...cached.summary }, parsed.events)
+            ? advanceTaskSummary({
+                ...cached.summary,
+                delegations: (cached.summary.delegations || []).map((item) => ({
+                  ...item,
+                  callIds: [...(item.callIds || [])],
+                })),
+              }, parsed.events)
             : null;
         cached = { offset: parsed.nextOffset, mtimeMs: file.mtimeMs, summary };
         this.taskCache.set(file.path, cached);
       }
 
-      if (cached.summary && now - cached.summary.lastEventAt <= RUNNING_TASK_STALE_MS) {
+      const startOnly = cached.summary
+        && cached.summary.lastEventAt <= cached.summary.startedAt + 1000;
+      const staleAfter = startOnly ? START_ONLY_TASK_STALE_MS : RUNNING_TASK_STALE_MS;
+      if (cached.summary
+        && now - cached.summary.lastEventAt <= staleAfter
+        && !this.taskCompletedInLogs(cached.summary)) {
         tasks.push({ ...cached.summary, filePath: file.path });
       }
     }
@@ -602,9 +867,29 @@ class CodexMonitor extends EventEmitter {
     }
 
     tasks.sort((a, b) => b.lastEventAt - a.lastEventAt);
+    tasks = this.openCode.enrichTasks(tasks);
     this.runningTasks = tasks;
     this.state.tasks = tasks.map(({ filePath: _filePath, ...task }) => task);
     return tasks;
+  }
+
+  taskCompletedInLogs(task) {
+    if (!this.db || !task?.id || !task?.startedAt) return false;
+    try {
+      const rows = this.db.prepare(
+        `SELECT feedback_log_body
+         FROM logs
+         WHERE thread_id = ?
+           AND target = 'codex_core::session::turn'
+           AND ts >= ?
+         ORDER BY id DESC
+         LIMIT 16`,
+      ).all(task.id, Math.floor(task.startedAt / 1000));
+      return rows.some((row) =>
+        /model_needs_follow_up=false[\s\S]*needs_follow_up=false/.test(row.feedback_log_body || ""));
+    } catch {
+      return false;
+    }
   }
 
   followFile(filePath, size) {
@@ -621,6 +906,7 @@ class CodexMonitor extends EventEmitter {
       latestReply: "",
       replyAt: 0,
       replyFresh: false,
+      delegations: [],
     };
     this.readAppended(true);
   }
@@ -694,6 +980,18 @@ class CodexMonitor extends EventEmitter {
     const eventTime = Date.parse(event?.timestamp || "") || Date.now();
     const summary = eventSummary(event);
     const patch = { connection: "connected", lastEventAt: eventTime, replyFresh: false };
+    const delegationHolder = {
+      ...this.state,
+      delegations: (this.state.delegations || []).map((item) => ({
+        ...item,
+        callIds: [...(item.callIds || [])],
+      })),
+    };
+    const delegationUpdate = advanceDelegations(delegationHolder, event);
+    const linkedDelegation = delegationHolder.delegations.some((delegation) =>
+      (delegation.callIds || []).includes(String(payload.call_id || payload.id || "")),
+    );
+    patch.delegations = delegationHolder.delegations;
 
     if (event.type === "session_meta") {
       patch.workspace = payload.cwd || patch.workspace;
@@ -707,6 +1005,7 @@ class CodexMonitor extends EventEmitter {
       patch.threadId = this.state.threadId;
       patch.latestReply = "";
       patch.replyAt = 0;
+      patch.delegations = [];
     } else if (type === "message" && payload.role === "user") {
       patch.task = shortTaskTitle(extractMessageText(payload), this.state.task);
       patch.mode = "thinking";
@@ -740,16 +1039,27 @@ class CodexMonitor extends EventEmitter {
       const waiting = /wait/i.test(payload.name || "");
       patch.mode = waiting ? "waiting" : "working";
       patch.phase = waiting ? "等待中" : "执行中";
-      patch.detail = labelForTool(payload.name);
+      patch.detail = delegationUpdate.created
+        ? `已委派 ${delegationUpdate.created} 个 OpenCode 子任务`
+        : linkedDelegation
+          ? "OpenCode 子任务运行中"
+          : labelForTool(payload.name);
       patch.progress = Math.min(92, Math.max(this.state.progress + 3, 24));
     } else if (type === "custom_tool_call_output" || type === "function_call_output") {
-      const output = String(payload.output || "");
-      const failed = /Exit code:\s*[1-9]|failed|error/i.test(output);
+      const output = toolOutputText(payload);
+      const failed = payload.isError === true
+        || /Exit code:\s*[1-9]|Process exited with code\s+[1-9]|"exit_code"\s*:\s*[1-9]/i.test(output);
       patch.mode = failed ? "error" : "working";
       patch.phase = failed ? "调整中" : "执行中";
-      patch.detail = failed
-        ? "遇到问题，正在尝试其他方法"
-        : "正在整理工具结果";
+      patch.detail = linkedDelegation
+        ? delegationUpdate.failed
+          ? "OpenCode 子任务异常，正在检查结果"
+          : delegationUpdate.running
+            ? "OpenCode 子任务仍在运行"
+            : "OpenCode 子任务已返回结果"
+        : failed
+          ? "遇到问题，正在尝试其他方法"
+          : "正在整理工具结果";
       patch.progress = Math.min(94, Math.max(this.state.progress + 1, 28));
     } else if (type === "token_count") {
       this.rememberRateLimits(payload.rate_limits, eventTime);
@@ -817,9 +1127,11 @@ class CodexMonitor extends EventEmitter {
 }
 
 module.exports = {
+  advanceDelegations,
   advanceTaskSummary,
   CodexMonitor,
   eventSummary,
+  extractOpenCodeInvocations,
   extractMessageText,
   labelForTool,
   parseJsonLines,
@@ -830,4 +1142,5 @@ module.exports = {
   stripInjectedContext,
   taskSummaryFromEvents,
   thinkingStage,
+  toolOutputText,
 };

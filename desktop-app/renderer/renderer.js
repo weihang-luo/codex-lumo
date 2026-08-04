@@ -7,10 +7,9 @@ let expanded = false;
 let latestState = null;
 let latestSystem = null;
 let lastMode = "";
-let lastProgress = -1;
 let lastTaskSignature = "";
 let renderedTaskCount = 1;
-let statePulseTimer = null;
+let renderedDelegationRows = 0;
 let petActionTimer = null;
 let petActionClearTimer = null;
 let gesture = null;
@@ -19,6 +18,7 @@ let lastActivationAt = 0;
 let powerSaving = false;
 let expansionSequence = 0;
 const DOUBLE_CLICK_MS = 320;
+const MAX_RECENT_COMPLETED_DELEGATIONS = 5;
 
 const PET_ACTIONS = {
   thinking: [
@@ -205,15 +205,48 @@ function currentTasks(state) {
       workspace: state.workspace,
       latestReply: state.latestReply,
       replyAt: state.replyAt,
+      delegations: state.delegations || [],
     }];
   }
   return [];
 }
 
+function displayedDelegations(tasks) {
+  return tasks.map((task) => {
+    const all = Array.isArray(task.delegations) ? task.delegations : [];
+    const sorted = [...all].sort((a, b) => (Number(b.lastEventAt) || 0) - (Number(a.lastEventAt) || 0));
+    const running = sorted.filter((delegation) => delegation.status === "running");
+    const recent = sorted
+      .filter((delegation) => delegation.status !== "running")
+      .slice(0, MAX_RECENT_COMPLETED_DELEGATIONS);
+    return [...running, ...recent];
+  });
+}
+
+function delegationStatusLabel(delegation) {
+  if (delegation.status === "failed" || delegation.stage === "failed") return "异常";
+  if (delegation.status === "completed" || delegation.stage === "completed") return "已完成";
+  if (delegation.stage === "thinking") return "分析中";
+  if (delegation.stage === "tool") return "执行中";
+  if (delegation.stage === "reply") return "回复中";
+  return "运行中";
+}
+
+function shortModel(value = "") {
+  return String(value || "DEFAULT").split("/").at(-1).replace(/-free$/i, "").toUpperCase();
+}
+
+function tokenLabel(tokens) {
+  const total = Number(tokens?.output || 0) + Number(tokens?.reasoning || 0);
+  if (!total) return "";
+  return total >= 1000 ? `${(total / 1000).toFixed(1)}K TOK` : `${total} TOK`;
+}
+
 function renderTasks(state) {
   const tasks = currentTasks(state);
-  const signature = tasks
-    .map((task) => [
+  const nested = displayedDelegations(tasks);
+  const taskSignatures = tasks
+    .map((task, index) => [
       task.id,
       task.task,
       task.mode,
@@ -225,20 +258,34 @@ function renderTasks(state) {
       task.lastEventAt,
       task.latestReply,
       task.replyAt,
-    ].join("~"))
-    .join("|");
+      ...nested[index].flatMap((delegation) => [
+        delegation.id,
+        delegation.sessionId,
+        delegation.status,
+        delegation.stage,
+        delegation.title,
+        delegation.latestUpdate,
+        delegation.latestReply,
+        delegation.lastEventAt,
+        delegation.tokens?.output,
+        delegation.tokens?.reasoning,
+      ]),
+    ].join("~"));
+  const signature = taskSignatures.join("|");
   const nextCount = Math.max(1, tasks.length);
+  const nextDelegationRows = nested.reduce((total, items) => total + items.length, 0);
   elements.taskCount.textContent = String(tasks.length);
 
-  if (expanded && nextCount !== renderedTaskCount) {
-    window.lumo.resize(true, nextCount, "tasks");
+  if (expanded && (nextCount !== renderedTaskCount || nextDelegationRows !== renderedDelegationRows)) {
+    window.lumo.resize(true, nextCount, "tasks", nextDelegationRows);
   }
   renderedTaskCount = nextCount;
+  renderedDelegationRows = nextDelegationRows;
   if (signature === lastTaskSignature) return;
   lastTaskSignature = signature;
-  elements.taskList.replaceChildren();
 
   if (!tasks.length) {
+    elements.taskList.replaceChildren();
     const empty = document.createElement("li");
     empty.className = "task-empty";
     empty.innerHTML = "<span>暂无正在运行的任务</span><b>STANDBY</b>";
@@ -246,13 +293,28 @@ function renderTasks(state) {
     return;
   }
 
+  const existingRows = new Map(
+    [...elements.taskList.querySelectorAll(".task-row")].map((row) => [row.dataset.taskId, row]),
+  );
+  const nextRows = [];
   tasks.forEach((task, index) => {
+    const taskKey = task.id || `task-${index}`;
+    const existing = existingRows.get(taskKey);
+    if (existing?.dataset.signature === taskSignatures[index]) {
+      existing.style.setProperty("--row-index", index);
+      nextRows.push(existing);
+      return;
+    }
     const item = document.createElement("li");
     item.className = "task-row";
+    if (existing) item.classList.add("is-refresh");
+    item.dataset.taskId = taskKey;
+    item.dataset.signature = taskSignatures[index];
     item.dataset.mode = task.mode || "thinking";
     item.dataset.startedAt = String(task.startedAt || 0);
     item.dataset.lastEventAt = String(task.lastEventAt || 0);
     item.dataset.replyAt = String(task.replyAt || 0);
+    item.style.setProperty("--delegation-rows", nested[index].length);
     item.style.setProperty("--row-index", index);
     item.title = task.task || "Codex 任务";
 
@@ -334,14 +396,60 @@ function renderTasks(state) {
     meta.append(workspace, started, thread, updated);
     copy.append(heading, activity, reply, meta);
 
+    if (nested[index].length) {
+      const delegationList = document.createElement("div");
+      delegationList.className = "task-delegations";
+      nested[index].forEach((delegation) => {
+        const child = document.createElement("div");
+        child.className = "task-delegation";
+        child.dataset.status = delegation.status || "running";
+        child.dataset.startedAt = String(delegation.startedAt || 0);
+        child.dataset.completedAt = String(delegation.completedAt || 0);
+
+        const provider = document.createElement("span");
+        provider.className = "delegation-provider";
+        provider.textContent = "OC";
+        provider.title = "OpenCode 子任务";
+
+        const childCopy = document.createElement("span");
+        childCopy.className = "delegation-copy";
+        const childTitle = document.createElement("b");
+        const baseChildTitle = delegation.sessionTitle || delegation.title || "OpenCode 子任务";
+        childTitle.textContent = delegation.rounds > 1 ? `${baseChildTitle} · ${delegation.rounds} 轮` : baseChildTitle;
+        childTitle.title = delegation.sessionTitle || delegation.title || "";
+        const childUpdate = document.createElement("em");
+        childUpdate.textContent = delegation.latestUpdate || "等待 OpenCode 会话数据";
+        childUpdate.title = delegation.latestReply || delegation.latestUpdate || "";
+        childCopy.append(childTitle, childUpdate);
+
+        const childMeta = document.createElement("span");
+        childMeta.className = "delegation-meta";
+        const model = document.createElement("code");
+        model.textContent = shortModel(delegation.model);
+        const tokens = document.createElement("small");
+        tokens.textContent = tokenLabel(delegation.tokens);
+        const childStatus = document.createElement("strong");
+        childStatus.textContent = delegationStatusLabel(delegation);
+        const childElapsed = document.createElement("time");
+        childElapsed.className = "delegation-elapsed";
+        childElapsed.textContent = formatTime(delegation.elapsedSeconds);
+        childMeta.append(model, tokens, childStatus, childElapsed);
+
+        child.append(provider, childCopy, childMeta);
+        delegationList.append(child);
+      });
+      copy.append(delegationList);
+    }
+
     const track = document.createElement("span");
     track.className = "task-track";
     const fill = document.createElement("i");
     track.append(fill);
 
     item.append(signal, copy, track);
-    elements.taskList.append(item);
+    nextRows.push(item);
   });
+  elements.taskList.replaceChildren(...nextRows);
 }
 
 function nextPetAction(mode) {
@@ -375,24 +483,15 @@ function schedulePetAction(mode, delay = 0) {
   else play();
 }
 
-function animateStateChange(mode, progress) {
+function animateStateChange(mode) {
   if (mode !== lastMode) schedulePetAction(mode);
-  if ((lastMode && mode !== lastMode) || (lastProgress >= 0 && progress !== lastProgress)) {
-    clearTimeout(statePulseTimer);
-    island.classList.remove("state-pulse");
-    void island.offsetWidth;
-    island.classList.add("state-pulse");
-    statePulseTimer = setTimeout(() => island.classList.remove("state-pulse"), 680);
-  }
   lastMode = mode;
-  lastProgress = progress;
 }
 
 function render(state) {
   if (!state) return;
   latestState = state;
   if (powerSaving) return;
-  const progress = clamp(state.progress);
   const mode = state.mode || "resting";
   const taskCount = currentTasks(state).length;
   island.dataset.mode = mode;
@@ -411,7 +510,7 @@ function render(state) {
   elements.compactWorkspace.textContent = workspaceLabel;
   elements.compactWorkspace.title = state.workspace || "";
   renderQuota(state.quota);
-  animateStateChange(mode, progress);
+  animateStateChange(mode);
   renderTasks(state);
 }
 
@@ -445,7 +544,7 @@ async function setExpanded(value) {
 
   if (target) {
     island.dataset.transition = "opening";
-    await window.lumo.resize(true, renderedTaskCount, "tasks");
+    await window.lumo.resize(true, renderedTaskCount, "tasks", renderedDelegationRows);
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     if (sequence !== expansionSequence) return;
     island.dataset.expanded = "true";
@@ -455,7 +554,7 @@ async function setExpanded(value) {
     await waitForMotion(120);
     if (sequence !== expansionSequence) return;
     island.dataset.expanded = "false";
-    await window.lumo.resize(false, renderedTaskCount, "tasks");
+    await window.lumo.resize(false, renderedTaskCount, "tasks", renderedDelegationRows);
     await waitForMotion(250);
   }
 
@@ -552,10 +651,8 @@ window.lumo.onPowerSave((enabled) => {
   if (powerSaving) {
     clearTimeout(petActionTimer);
     clearTimeout(petActionClearTimer);
-    clearTimeout(statePulseTimer);
     clearTimeout(activationTimer);
     lastActivationAt = 0;
-    island.classList.remove("state-pulse");
     delete island.dataset.action;
     return;
   }
@@ -586,6 +683,15 @@ setInterval(() => {
     if (time) time.textContent = formatTime(taskElapsed);
     const updated = row.querySelector(".task-updated");
     if (updated) updated.textContent = relativeUpdateLabel(Number(row.dataset.lastEventAt || 0));
+    row.querySelectorAll(".task-delegation").forEach((child) => {
+      const childStartedAt = Number(child.dataset.startedAt || 0);
+      const childCompletedAt = Number(child.dataset.completedAt || 0);
+      const childElapsed = childStartedAt
+        ? Math.max(0, Math.floor(((childCompletedAt || Date.now()) - childStartedAt) / 1000))
+        : 0;
+      const childTime = child.querySelector(".delegation-elapsed");
+      if (childTime) childTime.textContent = formatTime(childElapsed);
+    });
   });
   if (latestSystem?.updatedAt) {
     const age = Math.max(0, Math.floor((Date.now() - latestSystem.updatedAt) / 1000));

@@ -3,8 +3,14 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("lumo", {
   getState: () => ipcRenderer.invoke("lumo:get-state"),
   getSystem: () => ipcRenderer.invoke("lumo:get-system"),
-  resize: (expanded, taskCount = 1, view = "tasks") =>
-    ipcRenderer.invoke("lumo:resize", Boolean(expanded), Number(taskCount) || 1, view),
+  resize: (expanded, taskCount = 1, view = "tasks", delegationRows = 0) =>
+    ipcRenderer.invoke(
+      "lumo:resize",
+      Boolean(expanded),
+      Number(taskCount) || 1,
+      view,
+      Math.max(0, Number(delegationRows) || 0),
+    ),
   hide: () => ipcRenderer.invoke("lumo:hide"),
   quit: () => ipcRenderer.invoke("lumo:quit"),
   openCodex: () => ipcRenderer.invoke("lumo:open-codex"),

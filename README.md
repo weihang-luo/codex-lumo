@@ -46,3 +46,9 @@ npm run dist
 ## 许可证
 
 项目采用 [MIT License](LICENSE)。宠物形象改编自 MIT 许可的 React Kawaii `Cyborg`，第三方许可与来源见 `desktop-app/assets/pet/`。
+
+## OpenCode 子任务
+
+当 Codex 通过 `opencode run` 委派任务时，详情会把 OpenCode 会话显示为父 Codex 任务下的子任务，并展示运行阶段、最新进展、最新回复、模型、token 用量与耗时。关联以 Codex 调用 ID、启动时间、工作区和首条提示为依据；连续使用 `-c` 的调用会合并为同一子任务并标注轮次。
+
+OpenCode 补全为本地只读功能，仅查询 `~/.local/share/opencode/opencode.db` 中的 `session`、`message` 和 `part` 表，不读取凭据表，也不会继续、终止或修改 OpenCode 会话。没有 OpenCode 子任务时不会轮询该数据库。

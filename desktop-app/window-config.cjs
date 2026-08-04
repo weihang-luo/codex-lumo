@@ -8,6 +8,7 @@ const DEFAULT_WINDOW_SIZE = "medium";
 const DEFAULT_REVEAL_MS = 5000;
 const MAX_VISIBLE_TASKS = 5;
 const TASK_ROW_STEP = 88;
+const DELEGATION_ROW_STEP = 38;
 const TOP_DOCK_GAP = 12;
 const REVEAL_OPTIONS = Object.freeze([0, 3000, 5000, 8000]);
 
@@ -38,7 +39,7 @@ function profileFor(value) {
   };
 }
 
-function expandedSize(value, taskCount = 1, view = "tasks") {
+function expandedSize(value, taskCount = 1, view = "tasks", delegationRows = 0) {
   const profile = profileFor(value);
   if (view === "settings") {
     return { width: profile.expandedWidth, height: profile.settingsHeight };
@@ -46,13 +47,14 @@ function expandedSize(value, taskCount = 1, view = "tasks") {
   const visibleRows = Math.max(1, Math.min(MAX_VISIBLE_TASKS, Number(taskCount) || 1));
   return {
     width: profile.expandedWidth,
-    height: Math.round((202 + visibleRows * TASK_ROW_STEP) * profile.contentScale),
+    height: Math.round((202 + visibleRows * TASK_ROW_STEP + Math.max(0, Number(delegationRows) || 0) * DELEGATION_ROW_STEP) * profile.contentScale),
   };
 }
 
 module.exports = {
   DEFAULT_REVEAL_MS,
   DEFAULT_WINDOW_SIZE,
+  DELEGATION_ROW_STEP,
   MAX_VISIBLE_TASKS,
   REVEAL_OPTIONS,
   TASK_ROW_STEP,

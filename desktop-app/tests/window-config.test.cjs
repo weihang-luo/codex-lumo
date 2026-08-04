@@ -37,3 +37,7 @@ test("shows five task rows before the detail list needs scrolling", () => {
   assert.deepEqual(expandedSize("medium", 5, "tasks"), { width: 450, height: 642 });
   assert.deepEqual(expandedSize("medium", 8, "tasks"), { width: 450, height: 642 });
 });
+
+test("adds space for nested OpenCode child rows without changing width", () => {
+  assert.deepEqual(expandedSize("medium", 2, "tasks", 3), { width: 450, height: 492 });
+});
