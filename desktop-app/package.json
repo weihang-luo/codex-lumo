@@ -1,6 +1,6 @@
 {
   "name": "codex-lumo-desktop",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Codex Lumo Windows floating task companion",
   "main": "main.cjs",
   "author": "Codex Lumo",

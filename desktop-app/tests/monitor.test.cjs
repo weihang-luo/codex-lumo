@@ -113,6 +113,36 @@ test("expands Promise.all OpenCode launchers into distinct delegated tasks", () 
   assert.deepEqual(task.delegations.map((item) => item.transportId), ["73297", "44159"]);
 });
 
+test("resolves a single JavaScript prompt variable passed through JSON.stringify", () => {
+  const event = {
+    timestamp: "2026-08-05T03:13:43.676Z",
+    payload: {
+      type: "custom_tool_call",
+      call_id: "call-single",
+      input: "const task=`Implement the maximum stagnant days backend and tests.`;\n"
+        + "const r=await tools.exec_command({cmd:`opencode run --model opencode/deepseek-v4-flash-free ${JSON.stringify(task)}`,"
+        + "workdir:\"E:\\\\Project\",tty:true}); text(r);",
+    },
+  };
+  const [delegation] = extractOpenCodeInvocations(event);
+  assert.equal(delegation.prompt, "Implement the maximum stagnant days backend and tests.");
+  assert.match(delegation.title, /^Implement the maximum stagnant days backend/);
+  assert.ok(!delegation.title.includes("JSON.stringify"));
+});
+
+test("never exposes an unresolved JavaScript interpolation as the child title", () => {
+  const event = {
+    timestamp: "2026-08-05T03:13:43.676Z",
+    payload: {
+      type: "custom_tool_call",
+      call_id: "call-unknown-expression",
+      input: "const r=await tools.exec_command({cmd:`opencode run ${JSON.stringify(buildPrompt())}`,workdir:\"E:\\\\Project\"});",
+    },
+  };
+  const [delegation] = extractOpenCodeInvocations(event);
+  assert.equal(delegation.title, "OpenCode 子任务");
+});
+
 test("a running OpenCode child keeps its parent in an accurate execution state", () => {
   const task = alignTaskWithDelegations({
     mode: "error",

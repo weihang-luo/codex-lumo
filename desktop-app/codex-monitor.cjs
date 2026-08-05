@@ -191,10 +191,24 @@ function javascriptPromptArrays(source = "") {
   return arrays;
 }
 
+function javascriptPromptVariables(source = "") {
+  const variables = new Map();
+  const assignment = /\b(?:const|let|var)\s+([A-Za-z_]\w*)\s*=\s*(`(?:\\.|[^`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*;?/g;
+  let match;
+  while ((match = assignment.exec(String(source)))) {
+    const value = decodeJavaScriptString(match[2]).trim();
+    if (value) variables.set(match[1], value);
+  }
+  return variables;
+}
+
 function dynamicPromptValues(payload = {}, command = "") {
   const expression = command.match(/\$\{\s*JSON\.stringify\(\s*([A-Za-z_]\w*)\s*\)\s*\}/);
   if (!expression || payload.type !== "custom_tool_call") return [];
-  const arrays = javascriptPromptArrays(String(payload.input || ""));
+  const source = String(payload.input || "");
+  const variables = javascriptPromptVariables(source);
+  if (variables.has(expression[1])) return [variables.get(expression[1])];
+  const arrays = javascriptPromptArrays(source);
   const iterator = expression[1];
   const mapping = String(payload.input || "").match(
     new RegExp(`\\b([A-Za-z_]\\w*)\\.map\\(\\s*\\(?\\s*${iterator}\\s*\\)?\\s*=>`),
@@ -236,6 +250,9 @@ function openCodeModel(commandLine = "") {
 }
 
 function delegatedTaskTitle(prompt = "") {
+  if (/^\s*\$\{[\s\S]+\}\s*$/.test(String(prompt)) || /JSON\.stringify\s*\(/.test(String(prompt))) {
+    return "OpenCode 子任务";
+  }
   let value = String(prompt)
     .replace(/[A-Za-z]:\\[^\s，。；]+/g, "当前工作区")
     .replace(/\s+/g, " ")
@@ -1283,6 +1300,7 @@ module.exports = {
   extractOpenCodeInvocations,
   customCommandBodies,
   javascriptPromptArrays,
+  javascriptPromptVariables,
   extractMessageText,
   labelForTool,
   parseJsonLines,
