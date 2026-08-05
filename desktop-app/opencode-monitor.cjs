@@ -11,6 +11,7 @@ try {
 }
 
 const SESSION_MATCH_WINDOW_MS = 2 * 60 * 1000;
+const CONVERSATION_ENTRY_LIMIT = 320;
 
 function parseJson(value, fallback = {}) {
   try {
@@ -21,7 +22,13 @@ function parseJson(value, fallback = {}) {
 }
 
 function normalizeText(value = "") {
-  return String(value).replace(/\s+/g, " ").trim().replace(/^["']|["']$/g, "").trim().toLowerCase();
+  return String(value)
+    .replace(/\\[rnt]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function normalizePath(value = "") {
@@ -29,12 +36,53 @@ function normalizePath(value = "") {
 }
 
 function comparableText(value = "") {
-  return normalizeText(value).replace(/[\\/"'“”‘’`*_>#：:，。,.；;（）()\[\]{}-]/g, "");
+  return normalizeText(value).replace(/[\s\\/"'“”‘’`*_>#：:，。,.；;（）()\[\]{}-]/g, "");
 }
 
 function concise(value = "", limit = 100) {
   const text = safeDisplayText(value, "").replace(/[`*_>#]/g, " ").replace(/\s+/g, " ").trim();
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function conversationText(value = "", limit = 2400) {
+  const raw = typeof value === "string" ? value : JSON.stringify(value ?? "");
+  const text = safeDisplayText(raw, "内容编码异常")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function conversationEntry(row) {
+  const part = parseJson(row.data);
+  const message = parseJson(row.message_data);
+  const role = String(message.role || "assistant");
+  const timestamp = Number(part.time?.start || part.time?.created || row.time_created || row.time_updated) || 0;
+  if (part.type === "text") {
+    const text = conversationText(part.text);
+    return text ? { id: row.id, role, type: "message", label: role === "user" ? "任务" : "回复", text, timestamp } : null;
+  }
+  if (part.type === "reasoning") {
+    const text = conversationText(part.text);
+    return text ? { id: row.id, role: "assistant", type: "reasoning", label: "分析", text, timestamp } : null;
+  }
+  if (part.type === "tool") {
+    const tool = concise(part.tool || part.name || "工具", 40);
+    const state = part.state || {};
+    const title = conversationText(state.title || state.input?.description || "", 320);
+    const output = conversationText(state.output ?? state.result ?? "", 1800);
+    const text = [title, output].filter(Boolean).join("\n");
+    return {
+      id: row.id,
+      role: "tool",
+      type: "tool",
+      label: `工具 · ${tool}`,
+      text: text || "工具调用",
+      status: String(state.status || state.state || ""),
+      timestamp,
+    };
+  }
+  return null;
 }
 
 function partActivity(part = {}) {
@@ -59,12 +107,13 @@ function scoreSession(delegation, session, userParts) {
   const directoryMatch = normalizePath(delegation.directory) === normalizePath(session.directory);
   let bestPrompt = 0;
   for (const row of userParts) {
-    const text = normalizeText(parseJson(row.data).text);
+    const rawText = parseJson(row.data).text;
+    const text = normalizeText(rawText);
     if (!target || !text) continue;
     if (text === target) bestPrompt = Math.max(bestPrompt, 140);
     else if (text.includes(target) || target.includes(text)) bestPrompt = Math.max(bestPrompt, 105);
     else if (text.slice(0, 180) === target.slice(0, 180)) bestPrompt = Math.max(bestPrompt, 80);
-    else if (comparableText(text).slice(0, 140) === comparableTarget.slice(0, 140)) bestPrompt = Math.max(bestPrompt, 115);
+    else if (comparableText(rawText).slice(0, 140) === comparableTarget.slice(0, 140)) bestPrompt = Math.max(bestPrompt, 115);
   }
   const activityAt = Math.max(Number(session.time_created) || 0, Number(session.time_updated) || 0);
   const distance = Math.abs(activityAt - Number(delegation.startedAt || 0));
@@ -236,6 +285,47 @@ class OpenCodeMonitor {
     };
   }
 
+  getConversation(sessionId, options = {}) {
+    const id = String(sessionId || "");
+    if (!/^ses_[A-Za-z0-9_-]+$/.test(id) || !this.open()) {
+      return { available: false, sessionId: id, entries: [], error: "OpenCode 会话不可用" };
+    }
+    try {
+      const session = this.db.prepare(
+        `SELECT id, title, directory, time_created, time_updated
+         FROM session WHERE id = ? LIMIT 1`,
+      ).get(id);
+      if (!session) return { available: false, sessionId: id, entries: [], error: "未找到 OpenCode 会话" };
+      const requested = Math.max(20, Math.min(500, Number(options.limit) || CONVERSATION_ENTRY_LIMIT));
+      const rows = this.db.prepare(
+        `SELECT p.id, p.data, p.time_created, p.time_updated, m.data AS message_data
+         FROM part p
+         JOIN message m ON m.id = p.message_id
+         WHERE p.session_id = ?
+           AND json_extract(p.data, '$.type') IN ('text', 'reasoning', 'tool')
+         ORDER BY p.time_created DESC, p.time_updated DESC
+         LIMIT ?`,
+      ).all(id, requested + 1);
+      const truncated = rows.length > requested;
+      const entries = rows.slice(0, requested).reverse().map(conversationEntry).filter(Boolean);
+      const state = this.sessionState(id);
+      return {
+        available: true,
+        sessionId: id,
+        title: concise(session.title || "OpenCode 子任务", 100),
+        directory: conversationText(session.directory || "", 300),
+        startedAt: Number(session.time_created) || 0,
+        updatedAt: Number(session.time_updated) || 0,
+        status: state?.status || "unknown",
+        stage: state?.stage || "working",
+        truncated,
+        entries,
+      };
+    } catch {
+      return { available: false, sessionId: id, entries: [], error: "读取 OpenCode 历史失败" };
+    }
+  }
+
   enrichTasks(tasks = []) {
     if (!tasks.some((task) => task.delegations?.length) || !this.open()) return tasks;
     return tasks.map((task) => {
@@ -272,6 +362,8 @@ module.exports = {
   concise,
   collapseDelegations,
   comparableText,
+  conversationEntry,
+  conversationText,
   normalizePath,
   normalizeText,
   partActivity,

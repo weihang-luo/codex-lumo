@@ -590,8 +590,8 @@ function resizeWindow(expanded, taskCount = 1, view = "tasks", delegationRows = 
     ? expandedSize(settings.windowSize, taskCount, view, delegationRows)
     : { ...profileFor(settings.windowSize).compact };
   windowExpanded = Boolean(expanded);
-  windowView = view === "settings" ? "settings" : "tasks";
-  windowDelegationRows = Math.max(0, Number(delegationRows) || 0);
+  windowView = view === "settings" ? "settings" : view === "conversation" ? "conversation" : "tasks";
+  windowDelegationRows = view === "conversation" ? 0 : Math.max(0, Number(delegationRows) || 0);
   const current = mainWindow.getBounds();
   const display = screen.getDisplayMatching(current).workArea;
   next.height = Math.min(next.height, display.height - 20);
@@ -634,6 +634,14 @@ function registerIpc() {
     app.quit();
   });
   ipcMain.handle("lumo:open-logs", () => shell.openPath(path.join(codexRoot, "sessions")));
+  ipcMain.handle("lumo:get-open-code-conversation", (_event, sessionId) => {
+    if (!monitor || typeof monitor.getOpenCodeConversation !== "function") return null;
+    try {
+      return monitor.getOpenCodeConversation(String(sessionId || ""));
+    } catch {
+      return null;
+    }
+  });
   ipcMain.handle("lumo:toggle-click-through", () => setClickThrough(!clickThrough));
   ipcMain.handle("lumo:get-settings", () => publicSettings());
   ipcMain.handle("lumo:update-settings", (_event, patch) => updateSettings(patch));

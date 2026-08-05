@@ -36,6 +36,7 @@ function profileFor(value) {
     },
     expandedWidth: compactWidth,
     settingsHeight: readableSmall ? 340 : Math.round(340 * scale),
+    conversationHeight: readableSmall ? 520 : Math.round(560 * scale),
   };
 }
 
@@ -43,6 +44,9 @@ function expandedSize(value, taskCount = 1, view = "tasks", delegationRows = 0) 
   const profile = profileFor(value);
   if (view === "settings") {
     return { width: profile.expandedWidth, height: profile.settingsHeight };
+  }
+  if (view === "conversation") {
+    return { width: profile.expandedWidth, height: profile.conversationHeight };
   }
   const visibleRows = Math.max(1, Math.min(MAX_VISIBLE_TASKS, Number(taskCount) || 1));
   return {

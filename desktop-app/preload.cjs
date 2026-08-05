@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld("lumo", {
   quit: () => ipcRenderer.invoke("lumo:quit"),
   openCodex: () => ipcRenderer.invoke("lumo:open-codex"),
   openLogs: () => ipcRenderer.invoke("lumo:open-logs"),
+  getOpenCodeConversation: (sessionId) =>
+    ipcRenderer.invoke("lumo:get-open-code-conversation", String(sessionId || "")),
   toggleClickThrough: () => ipcRenderer.invoke("lumo:toggle-click-through"),
   getSettings: () => ipcRenderer.invoke("lumo:get-settings"),
   setLaunchAtLogin: (enabled) => ipcRenderer.invoke("lumo:set-launch-at-login", Boolean(enabled)),

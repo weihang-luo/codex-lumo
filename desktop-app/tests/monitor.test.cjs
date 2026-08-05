@@ -46,6 +46,16 @@ test("extracts OpenCode delegation metadata only from executable command fields"
     payload: { type: "custom_tool_call", name: "apply_patch", input: "Document opencode run --model example" },
   };
   assert.deepEqual(extractOpenCodeInvocations(patchText), []);
+
+  const patchInsideExec = {
+    payload: {
+      type: "custom_tool_call",
+      name: "exec",
+      call_id: "call-patch",
+      input: "const patch = `+ cmd:\\`opencode run --model fake example\\``; text(await tools.apply_patch(patch));",
+    },
+  };
+  assert.deepEqual(extractOpenCodeInvocations(patchInsideExec), []);
 });
 
 test("tracks OpenCode transport sessions and explicit completion", () => {
@@ -68,6 +78,39 @@ test("tracks OpenCode transport sessions and explicit completion", () => {
   });
   assert.equal(task.delegations[0].status, "completed");
   assert.equal(task.delegations[0].completedAt, Date.parse("2026-08-04T05:00:03.000Z"));
+});
+
+test("expands Promise.all OpenCode launchers into distinct delegated tasks", () => {
+  const event = {
+    timestamp: "2026-08-05T02:27:01.016Z",
+    payload: {
+      type: "custom_tool_call",
+      call_id: "call-batch",
+      input: "const tasks = [`Fix paginated global filters.`, `Fix mappingproxy serialization.`];\n"
+        + "const results = await Promise.all(tasks.map((task)=>tools.exec_command({"
+        + "cmd:`opencode run --model opencode/deepseek-v4-flash-free ${JSON.stringify(task)}`,"
+        + "workdir:\"E:\\\\Project\",tty:true})));",
+    },
+  };
+  const delegations = extractOpenCodeInvocations(event);
+  assert.equal(delegations.length, 2);
+  assert.deepEqual(delegations.map((item) => item.prompt), [
+    "Fix paginated global filters.",
+    "Fix mappingproxy serialization.",
+  ]);
+  assert.ok(delegations.every((item) => !item.title.includes("JSON.stringify")));
+
+  const task = { delegations: [], lastEventAt: 0 };
+  advanceDelegations(task, event);
+  advanceDelegations(task, {
+    timestamp: "2026-08-05T02:27:03.248Z",
+    payload: {
+      type: "custom_tool_call_output",
+      call_id: "call-batch",
+      output: "TASK1: {\"session_id\":73297}\nTASK2: {\"session_id\":44159}",
+    },
+  });
+  assert.deepEqual(task.delegations.map((item) => item.transportId), ["73297", "44159"]);
 });
 
 test("a running OpenCode child keeps its parent in an accurate execution state", () => {

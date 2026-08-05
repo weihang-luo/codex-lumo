@@ -78,6 +78,42 @@ function decodeCommandLiteral(token = "") {
     .replace(/\\\\([\\\\`'\"])/g, "$1");
 }
 
+function customCommandBodies(source = "") {
+  const bodies = [];
+  const call = /\btools\.(?:shell_command|exec_command)\s*\(\s*\{/g;
+  let match;
+  while ((match = call.exec(String(source)))) {
+    const start = call.lastIndex - 1;
+    let depth = 1;
+    let index = start + 1;
+    while (index < source.length && depth > 0) {
+      const char = source[index];
+      if (char === "'" || char === '"' || char === "`") {
+        const quote = char;
+        index += 1;
+        while (index < source.length) {
+          if (source[index] === "\\") {
+            index += 2;
+            continue;
+          }
+          if (source[index] === quote) {
+            index += 1;
+            break;
+          }
+          index += 1;
+        }
+        continue;
+      }
+      if (char === "{") depth += 1;
+      if (char === "}") depth -= 1;
+      index += 1;
+    }
+    if (depth === 0) bodies.push(source.slice(start + 1, index - 1));
+    call.lastIndex = index;
+  }
+  return bodies;
+}
+
 function commandSegmentsFromToolCall(payload = {}) {
   if (payload.type === "function_call") {
     try {
@@ -93,9 +129,78 @@ function commandSegmentsFromToolCall(payload = {}) {
   const input = String(payload.input || "");
   const segments = [];
   const pattern = /\b(?:cmd|command)\s*:\s*(`(?:\\.|[^`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
-  let match;
-  while ((match = pattern.exec(input))) segments.push(decodeCommandLiteral(match[1]));
+  for (const body of customCommandBodies(input)) {
+    let match;
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(body))) segments.push(decodeCommandLiteral(match[1]));
+  }
   return segments;
+}
+
+function decodeJavaScriptString(token = "") {
+  if (!token || token.length < 2) return "";
+  const quote = token[0];
+  if (quote === '"') {
+    try {
+      return JSON.parse(token);
+    } catch {}
+  }
+  return token.slice(1, -1)
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\r/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\([\\`'"$])/g, "$1");
+}
+
+function javascriptPromptArrays(source = "") {
+  const arrays = new Map();
+  const declaration = /\b(?:const|let|var)\s+([A-Za-z_]\w*)\s*=\s*\[/g;
+  let match;
+  while ((match = declaration.exec(String(source)))) {
+    const values = [];
+    let depth = 1;
+    let index = declaration.lastIndex;
+    while (index < source.length && depth > 0) {
+      const char = source[index];
+      if (char === "'" || char === '"' || char === "`") {
+        const start = index;
+        const quote = char;
+        index += 1;
+        while (index < source.length) {
+          if (source[index] === "\\") {
+            index += 2;
+            continue;
+          }
+          if (source[index] === quote) {
+            index += 1;
+            break;
+          }
+          index += 1;
+        }
+        if (depth === 1) values.push(decodeJavaScriptString(source.slice(start, index)));
+        continue;
+      }
+      if (char === "[") depth += 1;
+      if (char === "]") depth -= 1;
+      index += 1;
+    }
+    if (values.length) arrays.set(match[1], values.filter((value) => value.trim()));
+    declaration.lastIndex = index;
+  }
+  return arrays;
+}
+
+function dynamicPromptValues(payload = {}, command = "") {
+  const expression = command.match(/\$\{\s*JSON\.stringify\(\s*([A-Za-z_]\w*)\s*\)\s*\}/);
+  if (!expression || payload.type !== "custom_tool_call") return [];
+  const arrays = javascriptPromptArrays(String(payload.input || ""));
+  const iterator = expression[1];
+  const mapping = String(payload.input || "").match(
+    new RegExp(`\\b([A-Za-z_]\\w*)\\.map\\(\\s*\\(?\\s*${iterator}\\s*\\)?\\s*=>`),
+  );
+  if (mapping && arrays.has(mapping[1])) return arrays.get(mapping[1]);
+  return arrays.size === 1 ? [...arrays.values()][0] : [];
 }
 
 function toolCallDirectory(payload = {}) {
@@ -107,7 +212,8 @@ function toolCallDirectory(payload = {}) {
       return "";
     }
   }
-  const match = String(payload.input || "").match(/\bworkdir\s*:\s*(`(?:\\.|[^`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/);
+  const bodies = customCommandBodies(String(payload.input || ""));
+  const match = bodies.join("\n").match(/\bworkdir\s*:\s*(`(?:\\.|[^`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/);
   return match ? decodeCommandLiteral(match[1]) : "";
 }
 
@@ -169,6 +275,7 @@ function extractOpenCodeInvocations(event) {
       if (hereStringRanges.some(([start, end]) => match.index >= start && match.index < end)) continue;
       const tail = match[1] || "";
       if (/^\s*--help\b/i.test(tail)) continue;
+      const dynamicPrompts = dynamicPromptValues(payload, command);
       const references = [...tail.matchAll(/\$([A-Za-z_]\w*)/g)];
       const variable = references.length ? references.at(-1)[1] : "";
       let prompt = prompts.get(variable) || "";
@@ -177,24 +284,27 @@ function extractOpenCodeInvocations(event) {
           .replace(/^['"`]|['"`]$/g, "")
           .trim();
       }
-      invocations.push({
-        id: `${callId || "opencode"}:${invocations.length}`,
-        callIds: callId ? [callId] : [],
-        transportId: "",
-        provider: "OpenCode",
-        model: openCodeModel(tail),
-        title: delegatedTaskTitle(prompt),
-        prompt,
-        directory,
-        sessionId: "",
-        stage: "starting",
-        latestUpdate: "正在启动 OpenCode",
-        tokens: null,
-        status: "running",
-        startedAt: Date.parse(event?.timestamp || "") || Date.now(),
-        completedAt: 0,
-        lastEventAt: Date.parse(event?.timestamp || "") || Date.now(),
-      });
+      const resolvedPrompts = dynamicPrompts.length ? dynamicPrompts : [prompt];
+      for (const resolvedPrompt of resolvedPrompts) {
+        invocations.push({
+          id: `${callId || "opencode"}:${invocations.length}`,
+          callIds: callId ? [callId] : [],
+          transportId: "",
+          provider: "OpenCode",
+          model: openCodeModel(tail),
+          title: delegatedTaskTitle(resolvedPrompt),
+          prompt: resolvedPrompt,
+          directory,
+          sessionId: "",
+          stage: "starting",
+          latestUpdate: "正在启动 OpenCode",
+          tokens: null,
+          status: "running",
+          startedAt: Date.parse(event?.timestamp || "") || Date.now(),
+          completedAt: 0,
+          lastEventAt: Date.parse(event?.timestamp || "") || Date.now(),
+        });
+      }
     }
   }
   return invocations;
@@ -260,12 +370,14 @@ function advanceDelegations(task, event) {
     const running = transports.length > 0 || /script running|process is still running|session is still running/i.test(output);
     const failed = payload.isError === true
       || /Exit code:\s*[1-9]|Process exited with code\s+[1-9]|"exit_code"\s*:\s*[1-9]/i.test(output);
-    for (const delegation of task.delegations) {
-      if (!(delegation.callIds || []).includes(callId)) continue;
+    const linked = task.delegations.filter((delegation) => (delegation.callIds || []).includes(callId));
+    for (const [index, delegation] of linked.entries()) {
       delegation.lastEventAt = timestamp;
       if (running) {
         delegation.status = "running";
-        delegation.transportId = transports[0] || delegation.transportId;
+        delegation.transportId = transports[index]
+          || (linked.length === 1 ? transports[0] : "")
+          || delegation.transportId;
       } else {
         delegation.status = failed ? "failed" : "completed";
         delegation.completedAt = timestamp;
@@ -631,6 +743,21 @@ class CodexMonitor extends EventEmitter {
       replyAt: 0,
       replyFresh: false,
       quota: null,
+    };
+  }
+
+  getOpenCodeConversation(sessionId) {
+    const conversation = this.openCode.getConversation(sessionId);
+    const delegation = this.runningTasks
+      .flatMap((task) => task.delegations || [])
+      .find((item) => item.sessionId === sessionId);
+    if (!conversation.available || !delegation || delegation.status === "running") return conversation;
+    if (Number(delegation.completedAt || 0) < Number(conversation.updatedAt || 0)) return conversation;
+    return {
+      ...conversation,
+      status: delegation.status,
+      stage: delegation.stage || delegation.status,
+      completedAt: delegation.completedAt || 0,
     };
   }
 
@@ -1154,6 +1281,8 @@ module.exports = {
   CodexMonitor,
   eventSummary,
   extractOpenCodeInvocations,
+  customCommandBodies,
+  javascriptPromptArrays,
   extractMessageText,
   labelForTool,
   parseJsonLines,

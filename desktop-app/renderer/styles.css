@@ -21,6 +21,8 @@
 
 * { box-sizing: border-box; }
 
+[hidden] { display: none !important; }
+
 html,
 body {
   width: 100%;
@@ -613,7 +615,21 @@ button { font: inherit; }
 .task-meta code { color: #78849f; font: inherit; }
 .task-updated { color: #858b97; }
 .task-delegations { min-width: 0; display: grid; gap: 3px; margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(145, 167, 216, 0.12); }
-.task-delegation { min-width: 0; height: 31px; display: grid; grid-template-columns: 25px minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 2px 4px; border-radius: 5px; background: rgba(145, 167, 216, 0.045); }
+.task-delegation { min-width: 0; height: 31px; display: grid; grid-template-columns: 25px minmax(0, 1fr) auto auto; align-items: center; gap: 7px; padding: 2px 4px; border-radius: 5px; background: rgba(145, 167, 216, 0.045); }
+.delegation-log {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border: 1px solid rgba(145, 167, 216, 0.24);
+  border-radius: 5px;
+  color: #a9c1f4;
+  background: rgba(145, 167, 216, 0.08);
+  cursor: pointer;
+  font: 600 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif;
+  white-space: nowrap;
+}
+.delegation-log:hover:not(:disabled) { color: #dce7ff; background: rgba(145, 167, 216, 0.16); }
+.delegation-log:active:not(:disabled) { background: rgba(145, 167, 216, 0.22); }
+.delegation-log:disabled { color: #6f7480; background: rgba(255, 255, 255, 0.03); border-color: rgba(255, 255, 255, 0.06); cursor: default; }
 .delegation-provider { width: 23px; height: 18px; display: grid; place-items: center; border: 1px solid rgba(145, 167, 216, 0.22); border-radius: 4px; color: #a9c1f4; background: rgba(145, 167, 216, 0.08); font: 700 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; letter-spacing: 0.04em; }
 .delegation-copy { min-width: 0; display: grid; gap: 2px; }
 .delegation-copy b, .delegation-copy em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -643,6 +659,116 @@ button { font: inherit; }
 .task-row[data-mode="waiting"] .task-track i { animation-duration: 2.2s; animation-timing-function: steps(5, end); }
 .task-empty { grid-template-columns: 1fr auto; padding: 0 10px; color: #9296a1; font-size: 11px; }
 .task-empty b { color: #777b86; font: 600 9px/1 "Segoe UI Variable", "Segoe UI", sans-serif; letter-spacing: 0.04em; }
+
+.island[data-view="conversation"] .details > footer { display: none; }
+
+.conversation-view {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 5px;
+  padding: 7px 8px 6px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 28%),
+    linear-gradient(180deg, rgba(31, 33, 41, 0.995), rgba(23, 25, 32, 0.995));
+  animation: conversationReveal 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.conversation-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.conversation-back {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid rgba(145, 167, 216, 0.22);
+  border-radius: 6px;
+  color: #a9c1f4;
+  background: rgba(145, 167, 216, 0.07);
+  cursor: pointer;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.conversation-back:hover { color: #dce7ff; background: rgba(145, 167, 216, 0.14); }
+.conversation-title-wrap { min-width: 0; display: grid; gap: 2px; }
+.conversation-title-wrap strong { overflow: hidden; color: #ececef; font-size: 11.5px; font-weight: 650; letter-spacing: -0.1px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-meta-line { overflow: hidden; color: #7d818c; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-status {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--cyan) 26%, transparent);
+  border-radius: 5px;
+  color: var(--cyan);
+  background: color-mix(in srgb, var(--cyan) 10%, transparent);
+  font: 650 8.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif;
+  white-space: nowrap;
+}
+.conversation-status[data-status="completed"] { color: var(--acid); border-color: color-mix(in srgb, var(--acid) 26%, transparent); background: color-mix(in srgb, var(--acid) 10%, transparent); }
+.conversation-status[data-status="failed"] { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 26%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+
+.conversation-list {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden auto;
+  list-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+}
+
+.conversation-entry {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.028);
+}
+.conversation-entry.conversation-message { border-left: 2px solid rgba(145, 167, 216, 0.5); }
+.conversation-entry.conversation-reasoning { border-left: 2px solid rgba(255, 255, 255, 0.14); }
+.conversation-entry.conversation-tool { border-left: 2px solid rgba(120, 169, 255, 0.6); background: rgba(145, 167, 216, 0.05); }
+.conversation-entry-head { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.conversation-entry-label { min-width: 0; display: inline-flex; align-items: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-entry-label b { font: 700 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; letter-spacing: 0.06em; }
+.conversation-entry.conversation-message .conversation-entry-label b { color: #a9c1f4; }
+.conversation-entry.conversation-reasoning .conversation-entry-label b { color: #8b91a0; }
+.conversation-entry.conversation-tool .conversation-entry-label b { color: #78a9ff; }
+.conversation-entry-status { font: 600 6.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; color: #8b91a0; }
+.conversation-entry-head time { flex: 0 0 auto; color: #6f7480; font: 600 7.5px/1 "Segoe UI Variable", "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+.conversation-entry-body { min-width: 0; display: grid; gap: 3px; }
+.conversation-entry-text { margin: 0; color: #d3d6de; font-size: 9.5px; line-height: 1.35; white-space: pre-wrap; word-break: break-word; }
+.conversation-reasoning .conversation-entry-text { color: #7d828e; }
+.conversation-details { margin: 0; }
+.conversation-details summary { color: #7d828e; cursor: pointer; font: 650 8px/1 "Segoe UI Variable", "Segoe UI", sans-serif; user-select: none; }
+.conversation-details summary:hover { color: #aab0bd; }
+.conversation-details[open] summary { margin-bottom: 3px; }
+
+.conversation-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #6f7480;
+  font-size: 10px;
+  pointer-events: none;
+  text-align: center;
+  padding: 0 16px;
+}
+
+.conversation-footer { display: flex; align-items: center; justify-content: space-between; color: #7d818c; font-size: 8.5px; }
+.conversation-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 footer { display: flex; align-items: center; justify-content: space-between; color: #7d818c; font-size: 9px; }
 .text-button { padding: 2px 5px; border: 0; color: #a9c1f4; background: transparent; cursor: pointer; font-size: 9px; }
@@ -874,6 +1000,7 @@ footer { display: flex; align-items: center; justify-content: space-between; col
 @keyframes signalShift { 0%, 100% { transform: translateX(0); opacity: 0.12; } 50% { transform: translateX(-8px); opacity: 0.48; } }
 @keyframes dataRail { from { background-position: 0 0; opacity: 0.18; } to { background-position: 18px 0; opacity: 0.48; } }
 @keyframes taskEnter { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes conversationReveal { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes taskSignal { 0%, 100% { transform: scaleY(0.45); opacity: 0.5; } 50% { transform: scaleY(1); opacity: 1; } }
 @keyframes dockContentReveal { from { opacity: 0.15; transform: translateY(-8px) scaleX(0.985); } to { opacity: 1; transform: translateY(0) scaleX(1); } }
 @keyframes dockContentHide { from { opacity: 1; transform: translateY(0); } to { opacity: 0.35; transform: translateY(-5px); } }

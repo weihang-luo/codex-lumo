@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
-const { OpenCodeMonitor, partActivity } = require("../opencode-monitor.cjs");
+const { OpenCodeMonitor, partActivity, scoreSession } = require("../opencode-monitor.cjs");
 
 test("maps OpenCode part types to readable live stages", () => {
   assert.deepEqual(partActivity({ type: "reasoning", text: "Checking parser branches" }), {
@@ -15,6 +15,20 @@ test("maps OpenCode part types to readable live stages", () => {
     stage: "tool",
     latestUpdate: "正在执行 bash · Run tests",
   });
+});
+
+test("matches prompts even when a Windows launcher preserves escaped newlines and split quotes", () => {
+  const expected = "你是前后端 worker。只处理“订阅全局筛选”：\n1) 修改 API。";
+  const launched = "\"你是前后端 worker。只处理\" \"订阅全局筛选：\\n1) 修改 API。\"";
+  assert.equal(
+    require("../opencode-monitor.cjs").comparableText(expected),
+    require("../opencode-monitor.cjs").comparableText(launched),
+  );
+  assert.ok(scoreSession(
+    { prompt: expected, directory: "E:\\Project", startedAt: 1000 },
+    { directory: "E:/Project", time_created: 1200, time_updated: 1200 },
+    [{ data: JSON.stringify({ type: "text", text: launched }) }],
+  ) >= 90);
 });
 
 test("matches and enriches a delegated task from read-only OpenCode tables", (context) => {
@@ -75,6 +89,18 @@ test("matches and enriches a delegated task from read-only OpenCode tables", (co
   assert.equal(delegation.latestUpdate, "Checking the failing parser branch");
   assert.equal(delegation.tokens.output, 280);
   assert.equal(delegation.model, "deepseek-v4-flash-free");
+
+  const conversation = monitor.getConversation("ses_test");
+  assert.equal(conversation.available, true);
+  assert.equal(conversation.title, "Parser repair");
+  assert.deepEqual(conversation.entries.map((entry) => entry.label), ["任务", "分析"]);
+  assert.equal(conversation.entries[0].text, "Implement the bounded parser fix and report changed files.");
+  assert.deepEqual(monitor.getConversation("../secrets"), {
+    available: false,
+    sessionId: "../secrets",
+    entries: [],
+    error: "OpenCode 会话不可用",
+  });
 
   const writer = new DatabaseSync(dbPath);
   writer.prepare("UPDATE message SET data = ? WHERE id = ?").run(

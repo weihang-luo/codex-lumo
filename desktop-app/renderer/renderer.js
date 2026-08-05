@@ -2,8 +2,16 @@ const island = document.getElementById("island");
 const primary = document.getElementById("primary");
 const logsButton = document.getElementById("logsButton");
 const quitButton = document.getElementById("quitButton");
+const conversationBack = document.getElementById("conversationBack");
+const conversationRefresh = document.getElementById("conversationRefresh");
 
 let expanded = false;
+let currentView = "tasks";
+let conversationSessionId = null;
+let conversationData = null;
+let lastConversationSignature = "";
+let conversationFetchTimer = null;
+let conversationFetching = false;
 let latestState = null;
 let latestSystem = null;
 let lastMode = "";
@@ -94,6 +102,13 @@ const elements = {
   memoryBar: document.getElementById("memoryBar"),
   quotaBar: document.getElementById("quotaBar"),
   systemUpdated: document.getElementById("systemUpdated"),
+  conversationView: document.getElementById("conversationView"),
+  conversationList: document.getElementById("conversationList"),
+  conversationEmpty: document.getElementById("conversationEmpty"),
+  conversationTitle: document.getElementById("conversationTitle"),
+  conversationMeta: document.getElementById("conversationMeta"),
+  conversationStatus: document.getElementById("conversationStatus"),
+  conversationHint: document.getElementById("conversationHint"),
 };
 
 function clamp(value, minimum = 0, maximum = 100) {
@@ -117,6 +132,33 @@ function formatClock(timestamp = 0) {
   const date = new Date(Number(timestamp) || 0);
   if (!Number(timestamp) || !Number.isFinite(date.getTime())) return "--:--";
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatConversationTime(timestamp = 0) {
+  const numeric = Number(timestamp) || 0;
+  const date = new Date(numeric);
+  if (!numeric || !Number.isFinite(date.getTime())) return "--:--";
+  const pad = (value) => String(value).padStart(2, "0");
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  const now = new Date();
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  return sameDay ? time : `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${time}`;
+}
+
+function conversationStatusLabel(status = "") {
+  if (status === "completed") return "已完成";
+  if (status === "failed") return "异常";
+  return "运行中";
+}
+
+function conversationPartStatusLabel(status = "") {
+  const value = String(status).toLowerCase();
+  if (["completed", "complete", "success"].includes(value)) return "已完成";
+  if (["running", "pending"].includes(value)) return "执行中";
+  if (["failed", "error", "cancelled"].includes(value)) return "异常";
+  return status;
 }
 
 function relativeUpdateLabel(timestamp = 0) {
@@ -276,7 +318,7 @@ function renderTasks(state) {
   const nextDelegationRows = nested.reduce((total, items) => total + items.length, 0);
   elements.taskCount.textContent = String(tasks.length);
 
-  if (expanded && (nextCount !== renderedTaskCount || nextDelegationRows !== renderedDelegationRows)) {
+  if (expanded && currentView === "tasks" && (nextCount !== renderedTaskCount || nextDelegationRows !== renderedDelegationRows)) {
     window.lumo.resize(true, nextCount, "tasks", nextDelegationRows);
   }
   renderedTaskCount = nextCount;
@@ -435,7 +477,19 @@ function renderTasks(state) {
         childElapsed.textContent = formatTime(delegation.elapsedSeconds);
         childMeta.append(model, tokens, childStatus, childElapsed);
 
-        child.append(provider, childCopy, childMeta);
+        const logButton = document.createElement("button");
+        logButton.type = "button";
+        logButton.className = "delegation-log";
+        logButton.textContent = "日志/对话";
+        logButton.disabled = !delegation.sessionId;
+        logButton.title = delegation.sessionId
+          ? "查看该会话的日志与对话（只读）"
+          : "该会话尚未匹配到 OpenCode 会话";
+        logButton.addEventListener("click", () => {
+          if (delegation.sessionId) openConversation(delegation.sessionId);
+        });
+
+        child.append(provider, childCopy, childMeta, logButton);
         delegationList.append(child);
       });
       copy.append(delegationList);
@@ -450,6 +504,170 @@ function renderTasks(state) {
     nextRows.push(item);
   });
   elements.taskList.replaceChildren(...nextRows);
+}
+
+function resizeForCurrentView() {
+  if (currentView === "conversation") {
+    return window.lumo.resize(true, 1, "conversation", 0);
+  }
+  return window.lumo.resize(true, renderedTaskCount, "tasks", renderedDelegationRows);
+}
+
+function buildConversationList(data) {
+  const fragment = document.createDocumentFragment();
+  (data.entries || []).forEach((entry) => {
+    const item = document.createElement("li");
+    item.className = `conversation-entry conversation-${entry.type || "part"}`;
+    if (entry.type === "tool") item.dataset.status = entry.status || "";
+
+    const head = document.createElement("div");
+    head.className = "conversation-entry-head";
+    const label = document.createElement("span");
+    label.className = "conversation-entry-label";
+    const labelText = document.createElement("b");
+    labelText.textContent = entry.label || "条目";
+    label.append(labelText);
+    if (entry.type === "tool" && entry.status) {
+      const status = document.createElement("em");
+      status.className = "conversation-entry-status";
+      status.textContent = conversationPartStatusLabel(entry.status);
+      label.append(status);
+    }
+    const time = document.createElement("time");
+    time.textContent = formatConversationTime(entry.timestamp);
+    time.dateTime = entry.timestamp ? new Date(Number(entry.timestamp)).toISOString() : "";
+    head.append(label, time);
+
+    const body = document.createElement("div");
+    body.className = "conversation-entry-body";
+    const text = document.createElement("p");
+    text.className = "conversation-entry-text";
+    text.textContent = entry.text || "";
+    text.title = entry.text || "";
+    if (entry.type === "reasoning") {
+      const details = document.createElement("details");
+      details.className = "conversation-details";
+      const summary = document.createElement("summary");
+      summary.textContent = "展开分析内容";
+      details.append(summary, text);
+      body.append(details);
+    } else {
+      body.append(text);
+    }
+
+    item.append(head, body);
+    fragment.append(item);
+  });
+  return fragment;
+}
+
+function renderConversation(data, silent = false) {
+  const list = elements.conversationList;
+  const empty = elements.conversationEmpty;
+  if (!data || data.available === false || !data.sessionId) {
+    list.replaceChildren();
+    empty.hidden = false;
+    empty.textContent = (data && data.error) || "暂无会话数据 · 无法读取 OpenCode 会话日志";
+    return;
+  }
+  const signature = JSON.stringify({
+    sessionId: data.sessionId,
+    status: data.status,
+    updatedAt: data.updatedAt,
+    truncated: data.truncated,
+    entries: (data.entries || []).map((entry) => `${entry.type}:${entry.timestamp}:${entry.text.length}`).join("|"),
+  });
+  if (silent && signature === lastConversationSignature) return;
+  const keepAtBottom = !silent || list.scrollHeight - list.scrollTop - list.clientHeight < 36;
+  lastConversationSignature = signature;
+  conversationData = data;
+
+  elements.conversationTitle.textContent = data.title || "OpenCode 会话";
+  elements.conversationTitle.title = data.title || data.sessionId || "";
+  elements.conversationStatus.textContent = conversationStatusLabel(data.status);
+  elements.conversationStatus.dataset.status = data.status || "running";
+  const metaParts = [];
+  if (data.directory) metaParts.push(data.directory);
+  if (data.startedAt) metaParts.push(`开始 ${formatConversationTime(data.startedAt)}`);
+  if (data.updatedAt) metaParts.push(`更新 ${formatConversationTime(data.updatedAt)}`);
+  elements.conversationMeta.textContent = metaParts.join(" · ");
+  elements.conversationMeta.title = metaParts.join("\n");
+  elements.conversationHint.textContent = data.truncated
+    ? "只读视图 · 新事件自动刷新 · 已截断，仅显示最近记录"
+    : "只读视图 · 新事件自动刷新 · 不写入会话";
+
+  list.replaceChildren(buildConversationList(data));
+  if (keepAtBottom) list.scrollTop = list.scrollHeight;
+  empty.hidden = Boolean(data.entries?.length);
+  if (!empty.hidden) empty.textContent = "该会话暂无消息记录";
+}
+
+async function openConversation(sessionId) {
+  if (!sessionId) return;
+  currentView = "conversation";
+  conversationSessionId = sessionId;
+  conversationData = null;
+  lastConversationSignature = "";
+  clearTimeout(conversationFetchTimer);
+  conversationFetchTimer = null;
+  island.dataset.view = "conversation";
+  elements.conversationView.hidden = false;
+  elements.conversationList.replaceChildren();
+  elements.conversationEmpty.hidden = false;
+  elements.conversationEmpty.textContent = "正在读取会话日志…";
+  elements.conversationTitle.textContent = "OpenCode 会话";
+  elements.conversationMeta.textContent = "";
+  elements.conversationStatus.textContent = "运行中";
+  elements.conversationStatus.dataset.status = "running";
+  elements.conversationHint.textContent = "只读视图 · 新事件自动刷新 · 不写入会话";
+  await resizeForCurrentView();
+  conversationFetching = true;
+  let data = null;
+  try {
+    data = await window.lumo.getOpenCodeConversation(sessionId);
+  } finally {
+    conversationFetching = false;
+  }
+  if (currentView !== "conversation" || conversationSessionId !== sessionId) return;
+  renderConversation(data);
+}
+
+async function closeConversation() {
+  if (currentView !== "conversation") return;
+  currentView = "tasks";
+  conversationSessionId = null;
+  conversationData = null;
+  clearTimeout(conversationFetchTimer);
+  conversationFetchTimer = null;
+  delete island.dataset.view;
+  elements.conversationView.hidden = true;
+  await resizeForCurrentView();
+  renderTasks(latestState);
+}
+
+async function refreshConversation() {
+  if (!conversationSessionId || conversationFetching) return;
+  clearTimeout(conversationFetchTimer);
+  conversationFetchTimer = null;
+  conversationFetching = true;
+  const requestedSessionId = conversationSessionId;
+  try {
+    const data = await window.lumo.getOpenCodeConversation(requestedSessionId);
+    if (currentView !== "conversation" || conversationSessionId !== requestedSessionId) return;
+    renderConversation(data, true);
+  } finally {
+    conversationFetching = false;
+  }
+}
+
+function maybeRefreshConversation() {
+  if (currentView !== "conversation" || !conversationSessionId || powerSaving) return;
+  if (conversationData && conversationData.status !== "running") return;
+  if (conversationFetchTimer || conversationFetching) return;
+  conversationFetchTimer = setTimeout(() => {
+    conversationFetchTimer = null;
+    refreshConversation();
+  }, 1100);
 }
 
 function nextPetAction(mode) {
@@ -512,6 +730,7 @@ function render(state) {
   renderQuota(state.quota);
   animateStateChange(mode);
   renderTasks(state);
+  maybeRefreshConversation();
 }
 
 function renderSystem(state) {
@@ -544,11 +763,12 @@ async function setExpanded(value) {
 
   if (target) {
     island.dataset.transition = "opening";
-    await window.lumo.resize(true, renderedTaskCount, "tasks", renderedDelegationRows);
+    await resizeForCurrentView();
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     if (sequence !== expansionSequence) return;
     island.dataset.expanded = "true";
     await waitForMotion(320);
+    if (currentView === "conversation") refreshConversation();
   } else {
     island.dataset.transition = "closing";
     await waitForMotion(120);
@@ -631,10 +851,18 @@ primary.addEventListener("keydown", (event) => {
 
 logsButton.addEventListener("click", () => window.lumo.openLogs());
 quitButton.addEventListener("click", () => window.lumo.quit());
+conversationBack.addEventListener("click", () => closeConversation());
+conversationRefresh.addEventListener("click", () => refreshConversation());
 
 window.addEventListener("keydown", (event) => {
-  if (event.key.toLowerCase() === "e") setExpanded(!expanded);
-  if (event.key === "Escape" && expanded) setExpanded(false);
+  if (event.key.toLowerCase() === "e") {
+    if (currentView === "conversation") closeConversation();
+    else setExpanded(!expanded);
+  }
+  if (event.key === "Escape") {
+    if (currentView === "conversation") closeConversation();
+    else if (expanded) setExpanded(false);
+  }
 });
 
 window.lumo.onState(render);

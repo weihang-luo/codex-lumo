@@ -33,6 +33,14 @@ test("sizes task and settings views independently", () => {
   assert.deepEqual(expandedSize("small", 1, "settings"), { width: 394, height: 340 });
 });
 
+test("uses a stable-width taller view for OpenCode conversation history", () => {
+  const tasks = expandedSize("medium", 2, "tasks", 0);
+  const conversation = expandedSize("medium", 2, "conversation", 0);
+  assert.equal(conversation.width, tasks.width);
+  assert.equal(conversation.height, 560);
+  assert.equal(expandedSize("small", 1, "conversation", 0).height, 520);
+});
+
 test("shows five task rows before the detail list needs scrolling", () => {
   assert.deepEqual(expandedSize("medium", 5, "tasks"), { width: 450, height: 642 });
   assert.deepEqual(expandedSize("medium", 8, "tasks"), { width: 450, height: 642 });
