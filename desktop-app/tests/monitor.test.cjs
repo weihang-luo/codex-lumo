@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const {
   advanceDelegations,
+  alignTaskWithDelegations,
   CodexMonitor,
   eventSummary,
   extractOpenCodeInvocations,
@@ -67,6 +68,18 @@ test("tracks OpenCode transport sessions and explicit completion", () => {
   });
   assert.equal(task.delegations[0].status, "completed");
   assert.equal(task.delegations[0].completedAt, Date.parse("2026-08-04T05:00:03.000Z"));
+});
+
+test("a running OpenCode child keeps its parent in an accurate execution state", () => {
+  const task = alignTaskWithDelegations({
+    mode: "error",
+    phase: "调整中",
+    detail: "Earlier command failed",
+    delegations: [{ status: "running", latestUpdate: "正在执行 bash", lastEventAt: 20 }],
+  });
+  assert.equal(task.mode, "working");
+  assert.equal(task.phase, "执行中");
+  assert.equal(task.detail, "OpenCode · 正在执行 bash");
 });
 
 test("strips ambient browser context from task titles", () => {

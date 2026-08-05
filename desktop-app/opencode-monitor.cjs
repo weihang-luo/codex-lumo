@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { safeDisplayText } = require("./text-quality.cjs");
 
 let DatabaseSync = null;
 try {
@@ -32,7 +33,7 @@ function comparableText(value = "") {
 }
 
 function concise(value = "", limit = 100) {
-  const text = String(value).replace(/[`*_>#]/g, " ").replace(/\s+/g, " ").trim();
+  const text = safeDisplayText(value, "").replace(/[`*_>#]/g, " ").replace(/\s+/g, " ").trim();
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
@@ -159,30 +160,69 @@ class OpenCodeMonitor {
        FROM session WHERE id = ? LIMIT 1`,
     ).get(sessionId);
     if (!session) return null;
-    const rows = this.db.prepare(
-      `SELECT p.data, p.time_updated, m.data AS message_data
+    const latestUser = this.db.prepare(
+      `SELECT id, time_created
+       FROM message
+       WHERE session_id = ?
+         AND json_extract(data, '$.role') = 'user'
+       ORDER BY time_created DESC
+       LIMIT 1`,
+    ).get(sessionId);
+    const latestAssistant = this.db.prepare(
+      `SELECT id, time_created, time_updated, data
+       FROM message
+       WHERE session_id = ?
+         AND json_extract(data, '$.role') = 'assistant'
+       ORDER BY time_created DESC
+       LIMIT 1`,
+    ).get(sessionId);
+    const currentAssistant = latestAssistant
+      && Number(latestAssistant.time_created) >= Number(latestUser?.time_created || 0)
+      ? latestAssistant
+      : null;
+    const currentParts = currentAssistant ? this.db.prepare(
+      `SELECT data, time_updated
+       FROM part
+       WHERE session_id = ?
+         AND message_id = ?
+       ORDER BY time_updated DESC
+       LIMIT 16`,
+    ).all(sessionId, currentAssistant.id) : [];
+    const latestTextRow = this.db.prepare(
+      `SELECT p.data
        FROM part p
        JOIN message m ON m.id = p.message_id
        WHERE p.session_id = ?
          AND json_extract(m.data, '$.role') = 'assistant'
+         AND json_extract(p.data, '$.type') = 'text'
        ORDER BY p.time_updated DESC
-       LIMIT 16`,
-    ).all(sessionId);
-    const latestText = rows
+       LIMIT 1`,
+    ).get(sessionId);
+    const latestText = latestTextRow ? parseJson(latestTextRow.data) : null;
+    const activity = currentParts
       .map((row) => parseJson(row.data))
-      .find((part) => part.type === "text" && String(part.text || "").trim());
-    const activity = rows
-      .map((row) => partActivity(parseJson(row.data)))
+      .map(partActivity)
       .find(Boolean) || { stage: "working", latestUpdate: "OpenCode 正在处理" };
-    const message = parseJson(rows[0]?.message_data);
+    const message = parseJson(currentAssistant?.data);
     const completedAt = Number(message.time?.completed) || 0;
     const failed = Boolean(message.error) || ["error", "cancelled"].includes(String(message.finish || "").toLowerCase());
+    const waitingForAssistant = !currentAssistant;
+    const status = failed ? "failed" : completedAt && !waitingForAssistant ? "completed" : "running";
+    const latestUpdate = failed
+      ? "OpenCode 子任务异常结束"
+      : status === "completed"
+        ? latestText?.text
+          ? concise(latestText.text, 100)
+          : "OpenCode 已完成"
+        : waitingForAssistant
+          ? "等待 OpenCode 响应"
+          : activity.latestUpdate;
     return {
       sessionId,
-      sessionTitle: session.title || "",
-      stage: failed ? "failed" : completedAt ? "completed" : activity.stage,
-      status: failed ? "failed" : completedAt ? "completed" : "running",
-      latestUpdate: failed ? "OpenCode 子任务异常结束" : activity.latestUpdate,
+      sessionTitle: concise(session.title || "", 80),
+      stage: failed ? "failed" : status === "completed" ? "completed" : waitingForAssistant ? "starting" : activity.stage,
+      status,
+      latestUpdate,
       latestReply: concise(latestText?.text || "", 160),
       lastEventAt: Number(session.time_updated) || 0,
       completedAt,
@@ -203,7 +243,21 @@ class OpenCodeMonitor {
         try {
           const sessionId = this.matchSession(delegation);
           const detail = sessionId ? this.sessionState(sessionId) : null;
-          return detail ? { ...delegation, ...detail } : delegation;
+          if (!detail) return delegation;
+          const terminalFinal = delegation.status !== "running"
+            && Number(delegation.completedAt || 0) >= Number(detail.lastEventAt || 0);
+          if (!terminalFinal) return { ...delegation, ...detail };
+          return {
+            ...delegation,
+            ...detail,
+            status: delegation.status,
+            stage: delegation.status,
+            completedAt: delegation.completedAt,
+            lastEventAt: Math.max(delegation.lastEventAt || 0, detail.lastEventAt || 0),
+            latestUpdate: delegation.status === "failed"
+              ? "OpenCode 子任务已中断"
+              : detail.latestReply || "OpenCode 已完成",
+          };
         } catch {
           return delegation;
         }

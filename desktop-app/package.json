@@ -1,6 +1,6 @@
 {
   "name": "codex-lumo-desktop",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Codex Lumo Windows floating task companion",
   "main": "main.cjs",
   "author": "Codex Lumo",
@@ -29,6 +29,7 @@
       "preload.cjs",
       "codex-monitor.cjs",
       "opencode-monitor.cjs",
+      "text-quality.cjs",
       "reveal-policy.cjs",
       "system-monitor.cjs",
       "window-config.cjs",
@@ -55,5 +56,8 @@
     "portable": {
       "artifactName": "Codex-Lumo-Portable-${version}-${arch}.${ext}"
     }
+  },
+  "dependencies": {
+    "iconv-lite": "^0.7.0"
   }
 }

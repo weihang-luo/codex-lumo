@@ -3,6 +3,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { EventEmitter } = require("node:events");
 const { OpenCodeMonitor } = require("./opencode-monitor.cjs");
+const { safeDisplayText } = require("./text-quality.cjs");
 
 let DatabaseSync = null;
 try {
@@ -38,7 +39,7 @@ function stripInjectedContext(text = "") {
   value = value.replace(/<[^>]+>/g, " ");
   const marker = value.match(/##\s*My request for Codex:\s*([\s\S]*)/i);
   if (marker) value = marker[1];
-  return value.replace(/\s+/g, " ").trim();
+  return safeDisplayText(value.replace(/\s+/g, " ").trim(), "");
 }
 
 function shortTaskTitle(text, fallback = "正在处理 Codex 任务") {
@@ -276,6 +277,20 @@ function advanceDelegations(task, event) {
     created: created.length,
     running: task.delegations.filter((item) => item.status === "running").length,
     failed: task.delegations.filter((item) => item.status === "failed").length,
+  };
+}
+
+function alignTaskWithDelegations(task) {
+  const running = (task?.delegations || [])
+    .filter((delegation) => delegation.status === "running")
+    .sort((a, b) => (Number(b.lastEventAt) || 0) - (Number(a.lastEventAt) || 0));
+  if (!running.length) return task;
+  const current = running[0];
+  return {
+    ...task,
+    mode: "working",
+    phase: "执行中",
+    detail: `OpenCode · ${safeDisplayText(current.latestUpdate, "子任务运行中") || "子任务运行中"}`,
   };
 }
 
@@ -867,9 +882,15 @@ class CodexMonitor extends EventEmitter {
     }
 
     tasks.sort((a, b) => b.lastEventAt - a.lastEventAt);
-    tasks = this.openCode.enrichTasks(tasks);
+    tasks = this.openCode.enrichTasks(tasks).map(alignTaskWithDelegations);
     this.runningTasks = tasks;
     this.state.tasks = tasks.map(({ filePath: _filePath, ...task }) => task);
+    const focused = tasks.find((task) => task.id === this.state.threadId);
+    if (focused && focused.delegations?.some((delegation) => delegation.status === "running")) {
+      this.state.mode = focused.mode;
+      this.state.phase = focused.phase;
+      this.state.detail = focused.detail;
+    }
     return tasks;
   }
 
@@ -1129,6 +1150,7 @@ class CodexMonitor extends EventEmitter {
 module.exports = {
   advanceDelegations,
   advanceTaskSummary,
+  alignTaskWithDelegations,
   CodexMonitor,
   eventSummary,
   extractOpenCodeInvocations,

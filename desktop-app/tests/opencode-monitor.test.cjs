@@ -75,4 +75,55 @@ test("matches and enriches a delegated task from read-only OpenCode tables", (co
   assert.equal(delegation.latestUpdate, "Checking the failing parser branch");
   assert.equal(delegation.tokens.output, 280);
   assert.equal(delegation.model, "deepseek-v4-flash-free");
+
+  const writer = new DatabaseSync(dbPath);
+  writer.prepare("UPDATE message SET data = ? WHERE id = ?").run(
+    JSON.stringify({ role: "assistant", time: { created: startedAt + 200, completed: startedAt + 4200 }, finish: "stop" }),
+    "msg_assistant",
+  );
+  writer.prepare("INSERT INTO message VALUES (?, ?, ?, ?, ?)").run(
+    "msg_assistant_next", "ses_test", startedAt + 5000, startedAt + 5000,
+    JSON.stringify({ role: "assistant", time: { created: startedAt + 5000 } }),
+  );
+  writer.prepare("UPDATE session SET time_updated = ? WHERE id = ?").run(startedAt + 5000, "ses_test");
+  writer.close();
+
+  const nextTurn = monitor.sessionState("ses_test");
+  assert.equal(nextTurn.status, "running");
+  assert.equal(nextTurn.stage, "working");
+  assert.equal(nextTurn.completedAt, 0);
+  assert.equal(nextTurn.latestUpdate, "OpenCode 正在处理");
+
+  const finalWriter = new DatabaseSync(dbPath);
+  finalWriter.prepare("UPDATE message SET time_updated = ?, data = ? WHERE id = ?").run(
+    startedAt + 7000,
+    JSON.stringify({ role: "assistant", time: { created: startedAt + 5000, completed: startedAt + 7000 }, finish: "stop" }),
+    "msg_assistant_next",
+  );
+  finalWriter.prepare("INSERT INTO part VALUES (?, ?, ?, ?, ?, ?)").run(
+    "part_tool", "msg_assistant_next", "ses_test", startedAt + 6000, startedAt + 6500,
+    JSON.stringify({ type: "tool", tool: "bash", state: { title: "npm run build" } }),
+  );
+  finalWriter.prepare("UPDATE session SET time_updated = ? WHERE id = ?").run(startedAt + 7000, "ses_test");
+  finalWriter.close();
+
+  const completedTurn = monitor.sessionState("ses_test");
+  assert.equal(completedTurn.status, "completed");
+  assert.equal(completedTurn.stage, "completed");
+  assert.equal(completedTurn.latestUpdate, "OpenCode 已完成");
+
+  const [terminalTask] = monitor.enrichTasks([{
+    id: "codex-parent",
+    delegations: [{
+      id: "call:0",
+      prompt: "Implement the bounded parser fix and report changed files.",
+      directory: "E:\\Project",
+      startedAt,
+      status: "failed",
+      completedAt: startedAt + 8000,
+      lastEventAt: startedAt + 8000,
+    }],
+  }]);
+  assert.equal(terminalTask.delegations[0].status, "failed");
+  assert.equal(terminalTask.delegations[0].latestUpdate, "OpenCode 子任务已中断");
 });
