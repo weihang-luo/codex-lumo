@@ -11,6 +11,9 @@ try {
 }
 
 const SESSION_MATCH_WINDOW_MS = 2 * 60 * 1000;
+const DISCOVERY_LOOKBACK_MS = 2 * 60 * 1000;
+const DISCOVERY_FORWARD_MS = 10 * 60 * 1000;
+const DISCOVERY_LIMIT = 120;
 const CONVERSATION_ENTRY_LIMIT = 320;
 
 function parseJson(value, fallback = {}) {
@@ -33,6 +36,38 @@ function normalizeText(value = "") {
 
 function normalizePath(value = "") {
   return String(value).replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+}
+
+function directoryRelationScore(expected = "", actual = "") {
+  const parent = normalizePath(expected);
+  const child = normalizePath(actual);
+  if (!parent || !child) return 0;
+  if (parent === child) return 3000 + parent.length;
+  if (child.startsWith(`${parent}/`)) return 2000 + parent.length;
+  if (parent.startsWith(`${child}/`)) return 1000 + child.length;
+  return 0;
+}
+
+function taskDirectories(task = {}) {
+  return [...new Set([
+    task.openCodeHintDirectory,
+    task.workspace,
+    ...(task.delegations || []).map((delegation) => delegation.directory),
+  ].map(normalizePath).filter(Boolean))];
+}
+
+function discoveryTaskScore(task, session) {
+  const evidenceAt = Number(task.openCodeHintAt || task.startedAt) || 0;
+  const createdAt = Number(session.time_created) || 0;
+  if (!evidenceAt
+    || createdAt < evidenceAt - DISCOVERY_LOOKBACK_MS
+    || createdAt > evidenceAt + DISCOVERY_FORWARD_MS) return 0;
+  const pathScore = Math.max(0, ...taskDirectories(task).map((directory) =>
+    directoryRelationScore(directory, session.directory),
+  ));
+  if (!pathScore) return 0;
+  const proximity = Math.max(0, DISCOVERY_FORWARD_MS - Math.abs(createdAt - evidenceAt));
+  return pathScore * 1000000 + proximity;
 }
 
 function comparableText(value = "") {
@@ -202,6 +237,61 @@ class OpenCodeMonitor {
     return match;
   }
 
+  firstUserPrompt(sessionId) {
+    const row = this.db.prepare(
+      `SELECT p.data
+       FROM part p
+       JOIN message m ON m.id = p.message_id
+       WHERE p.session_id = ?
+         AND json_extract(m.data, '$.role') = 'user'
+         AND json_extract(p.data, '$.type') = 'text'
+       ORDER BY p.time_created ASC
+       LIMIT 1`,
+    ).get(sessionId);
+    return row ? concise(parseJson(row.data).text || "", 180) : "";
+  }
+
+  discoverSessions(tasks = [], linkedSessionIds = new Set()) {
+    const eligible = tasks.filter((task) =>
+      Number(task.openCodeHintAt) > 0 || (task.delegations || []).length > 0,
+    );
+    if (!eligible.length) return new Map();
+    const earliest = Math.min(...eligible.map((task) =>
+      Number(task.openCodeHintAt || task.startedAt) || Date.now(),
+    )) - DISCOVERY_LOOKBACK_MS;
+    const sessions = this.db.prepare(
+      `SELECT id, title, directory, time_created, time_updated
+       FROM session
+       WHERE time_created >= ?
+       ORDER BY time_created DESC
+       LIMIT ?`,
+    ).all(earliest, DISCOVERY_LIMIT);
+    const discovered = new Map(eligible.map((task) => [task, []]));
+    for (const session of sessions) {
+      if (linkedSessionIds.has(session.id)) continue;
+      const ranked = eligible.map((task) => ({ task, score: discoveryTaskScore(task, session) }))
+        .filter((candidate) => candidate.score > 0)
+        .sort((a, b) => b.score - a.score);
+      const owner = ranked[0]?.task;
+      if (!owner) continue;
+      const detail = this.sessionState(session.id);
+      if (!detail) continue;
+      discovered.get(owner).push({
+        id: `discovered:${session.id}`,
+        sessionId: session.id,
+        sessionTitle: detail.sessionTitle || concise(session.title || "", 80),
+        provider: "OpenCode",
+        prompt: this.firstUserPrompt(session.id) || detail.sessionTitle || "OpenCode subtask",
+        directory: session.directory || owner.openCodeHintDirectory || owner.workspace || "",
+        startedAt: Number(session.time_created) || 0,
+        discovered: true,
+        ...detail,
+      });
+      linkedSessionIds.add(session.id);
+    }
+    return discovered;
+  }
+
   sessionState(sessionId) {
     const session = this.db.prepare(
       `SELECT id, title, model, time_created, time_updated,
@@ -327,13 +417,16 @@ class OpenCodeMonitor {
   }
 
   enrichTasks(tasks = []) {
-    if (!tasks.some((task) => task.delegations?.length) || !this.open()) return tasks;
-    return tasks.map((task) => {
+    const hasEvidence = tasks.some((task) => task.delegations?.length || Number(task.openCodeHintAt) > 0);
+    if (!hasEvidence || !this.open()) return tasks;
+    const linkedSessionIds = new Set();
+    const enrichedTasks = tasks.map((task) => {
       const enriched = (task.delegations || []).map((delegation) => {
         try {
           const sessionId = this.matchSession(delegation);
           const detail = sessionId ? this.sessionState(sessionId) : null;
           if (!detail) return delegation;
+          linkedSessionIds.add(sessionId);
           const terminalFinal = delegation.status !== "running"
             && Number(delegation.completedAt || 0) >= Number(detail.lastEventAt || 0);
           if (!terminalFinal) return { ...delegation, ...detail };
@@ -354,6 +447,14 @@ class OpenCodeMonitor {
       });
       return { ...task, delegations: collapseDelegations(enriched) };
     });
+    const discoveredByTask = this.discoverSessions(enrichedTasks, linkedSessionIds);
+    return enrichedTasks.map((task) => ({
+      ...task,
+      delegations: collapseDelegations([
+        ...(task.delegations || []),
+        ...(discoveredByTask.get(task) || []),
+      ]),
+    }));
   }
 }
 
@@ -364,6 +465,8 @@ module.exports = {
   comparableText,
   conversationEntry,
   conversationText,
+  directoryRelationScore,
+  discoveryTaskScore,
   normalizePath,
   normalizeText,
   partActivity,

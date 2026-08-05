@@ -114,6 +114,24 @@ function customCommandBodies(source = "") {
   return bodies;
 }
 
+function dynamicOpenCodeCommands(payload = {}) {
+  if (payload.type !== "custom_tool_call") return [];
+  const input = String(payload.input || "");
+  const bodies = customCommandBodies(input);
+  const hasDynamicCommand = bodies.some((body) => /\b(?:cmd|command)\s*:\s*[A-Za-z_$][\w.$[\]]*/.test(body));
+  if (!hasDynamicCommand) return [];
+  const commands = [];
+  const literal = /(`(?:\\.|[^`])*`|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g;
+  let match;
+  while ((match = literal.exec(input))) {
+    const value = decodeJavaScriptString(match[1]).trim();
+    if (/^(?:&\s*)?(?:[\w.-]+\s+exec\s+)?opencode(?:\.cmd|\.ps1|\.exe)?\s+run\b/i.test(value)) {
+      commands.push(value);
+    }
+  }
+  return [...new Set(commands)];
+}
+
 function commandSegmentsFromToolCall(payload = {}) {
   if (payload.type === "function_call") {
     try {
@@ -134,6 +152,7 @@ function commandSegmentsFromToolCall(payload = {}) {
     pattern.lastIndex = 0;
     while ((match = pattern.exec(body))) segments.push(decodeCommandLiteral(match[1]));
   }
+  if (!segments.length) segments.push(...dynamicOpenCodeCommands(payload));
   return segments;
 }
 
@@ -231,6 +250,18 @@ function toolCallDirectory(payload = {}) {
   return match ? decodeCommandLiteral(match[1]) : "";
 }
 
+function hasOpenCodeLaunchHint(event) {
+  const payload = event?.payload || {};
+  if (!["function_call", "custom_tool_call"].includes(eventType(event))) return false;
+  if (payload.type === "function_call") {
+    return commandSegmentsFromToolCall(payload)
+      .some((command) => /\bopencode(?:\.cmd|\.ps1|\.exe)?\s+run\b/i.test(command));
+  }
+  const input = String(payload.input || "");
+  return customCommandBodies(input).length > 0
+    && /\bopencode(?:\.cmd|\.ps1|\.exe)?\s+run\b/i.test(input);
+}
+
 function powershellPromptVariables(command = "") {
   const prompts = new Map();
   const patterns = [
@@ -249,6 +280,11 @@ function openCodeModel(commandLine = "") {
   return (match?.[1] || match?.[2] || "OpenCode default").trim();
 }
 
+function openCodeDirectory(commandLine = "") {
+  const match = commandLine.match(/--dir(?:=|\s+)(?:['"]([^'"]+)['"]|([^\s;]+))/i);
+  return (match?.[1] || match?.[2] || "").trim();
+}
+
 function delegatedTaskTitle(prompt = "") {
   if (/^\s*\$\{[\s\S]+\}\s*$/.test(String(prompt)) || /JSON\.stringify\s*\(/.test(String(prompt))) {
     return "OpenCode 子任务";
@@ -264,9 +300,8 @@ function delegatedTaskTitle(prompt = "") {
 
 function stripOpenCodeOptions(value = "") {
   return String(value)
-    .replace(/(?:--model|-m)\s+(?:'[^']+'|"[^"]+"|\S+)/gi, " ")
-    .replace(/--variant\s+(?:'[^']+'|"[^"]+"|\S+)/gi, " ")
-    .replace(/(?:--auto|-c|--continue)\b/gi, " ")
+    .replace(/(?:--(?:model|variant|log-level|command|session|agent|format|file|title|attach|password|username|dir|port)|-[msfpu])(?:=|\s+)(?:'[^']+'|"[^"]+"|\S+)/gi, " ")
+    .replace(/(?:--(?:auto|continue|fork|share|print-logs|pure|thinking|interactive)|-[ci])\b/gi, " ")
     .replace(/^\s*--\s*/, " ")
     .trim();
 }
@@ -286,7 +321,7 @@ function extractOpenCodeInvocations(event) {
       let range;
       while ((range = pattern.exec(command))) hereStringRanges.push([range.index, range.index + range[0].length]);
     }
-    const invocation = /(?:^|[;\r\n])\s*(?:\$[A-Za-z_]\w*\s*=\s*)?&?\s*opencode(?:\.cmd|\.ps1)?\s+run\b([^\r\n;]*)/gi;
+    const invocation = /(?:^|[;\r\n]|&&|\|\|)\s*(?:\$[A-Za-z_]\w*\s*=\s*)?&?\s*(?:(?:npx|pnpx|bunx|yarn\s+dlx|pnpm\s+(?:dlx|exec)|npm\s+exec(?:\s+--)?)\s+)?(?:[A-Za-z]:[^\r\n;]*?[\\/])?opencode(?:\.cmd|\.ps1|\.exe)?\s+run\b([^\r\n;]*)/gi;
     let match;
     while ((match = invocation.exec(command))) {
       if (hereStringRanges.some(([start, end]) => match.index >= start && match.index < end)) continue;
@@ -311,7 +346,7 @@ function extractOpenCodeInvocations(event) {
           model: openCodeModel(tail),
           title: delegatedTaskTitle(resolvedPrompt),
           prompt: resolvedPrompt,
-          directory,
+          directory: openCodeDirectory(tail) || directory,
           sessionId: "",
           stage: "starting",
           latestUpdate: "正在启动 OpenCode",
@@ -363,6 +398,10 @@ function advanceDelegations(task, event) {
   const type = eventType(event);
   const timestamp = Date.parse(event?.timestamp || "") || task.lastEventAt || Date.now();
   const callId = String(payload.call_id || payload.id || "");
+  if (hasOpenCodeLaunchHint(event)) {
+    task.openCodeHintAt = timestamp;
+    task.openCodeHintDirectory = toolCallDirectory(payload) || task.openCodeHintDirectory || task.workspace || "";
+  }
   const created = extractOpenCodeInvocations(event);
   if (created.length) {
     const existing = new Set(task.delegations.map((item) => item.id));
@@ -589,6 +628,8 @@ function taskSummaryFromEvents(events, options = {}) {
     latestReply: "",
     replyAt: 0,
     delegations: [],
+    openCodeHintAt: 0,
+    openCodeHintDirectory: "",
   };
 
   return advanceTaskSummary(task, events.slice(lastStart + 1));
@@ -755,6 +796,8 @@ class CodexMonitor extends EventEmitter {
       events: [],
       tasks: [],
       delegations: [],
+      openCodeHintAt: 0,
+      openCodeHintDirectory: "",
       thinkingStep: 0,
       latestReply: "",
       replyAt: 0,
@@ -1072,6 +1115,8 @@ class CodexMonitor extends EventEmitter {
       replyAt: 0,
       replyFresh: false,
       delegations: [],
+      openCodeHintAt: 0,
+      openCodeHintDirectory: "",
     };
     this.readAppended(true);
   }
@@ -1157,6 +1202,8 @@ class CodexMonitor extends EventEmitter {
       (delegation.callIds || []).includes(String(payload.call_id || payload.id || "")),
     );
     patch.delegations = delegationHolder.delegations;
+    patch.openCodeHintAt = delegationHolder.openCodeHintAt || 0;
+    patch.openCodeHintDirectory = delegationHolder.openCodeHintDirectory || "";
 
     if (event.type === "session_meta") {
       patch.workspace = payload.cwd || patch.workspace;
@@ -1171,6 +1218,8 @@ class CodexMonitor extends EventEmitter {
       patch.latestReply = "";
       patch.replyAt = 0;
       patch.delegations = [];
+      patch.openCodeHintAt = 0;
+      patch.openCodeHintDirectory = "";
     } else if (type === "message" && payload.role === "user") {
       patch.task = shortTaskTitle(extractMessageText(payload), this.state.task);
       patch.mode = "thinking";
@@ -1296,9 +1345,11 @@ module.exports = {
   advanceTaskSummary,
   alignTaskWithDelegations,
   CodexMonitor,
+  dynamicOpenCodeCommands,
   eventSummary,
   extractOpenCodeInvocations,
   customCommandBodies,
+  hasOpenCodeLaunchHint,
   javascriptPromptArrays,
   javascriptPromptVariables,
   extractMessageText,
